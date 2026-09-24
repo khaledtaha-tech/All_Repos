@@ -173,64 +173,257 @@
         return `<span class="text-[#8b949e]/60 font-mono text-xs select-none pl-1" title="Language fallback">${escapeHtml(fallback)}</span>`;
     }
 
+    // Database Tracking Predefined Choices (Lightweight localStorage)
+    const DB_TRACKER_STORAGE_KEY = 'all_repos_db_tracker';
+    const DB_TRACKER_CHOICES = [
+        { value: 'none', label: 'None' },
+        { value: 'MySQL', label: 'MySQL' },
+        { value: 'SQLite', label: 'SQLite' },
+        { value: 'MongoDB', label: 'MongoDB' },
+        { value: 'PostgreSQL', label: 'PostgreSQL' },
+        { value: 'Other', label: 'Other' },
+    ];
+
     /**
-     * Render Database badge (Green badge or muted No)
+     * Retrieve Database tracker map from localStorage
      */
-    function renderDatabaseCell(repo) {
-        const inspection = state.inspections[repo.name] || repo.inspection;
-        const isScanning = state.inspectingRepos.has(repo.name);
-
-        if (isScanning && !inspection) {
-            return `
-                <span class="inline-flex items-center gap-1 text-[11px] text-[#8b949e] animate-pulse">
-                    <svg class="w-3 h-3 animate-spin text-[#3fb950]" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    <span>...</span>
-                </span>
-            `;
+    function getDbTrackerMap() {
+        try {
+            const stored = localStorage.getItem(DB_TRACKER_STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            return {};
         }
+    }
 
+    /**
+     * Retrieve assigned database for a repository (by name or ID)
+     */
+    function getRepoDbTracker(repo) {
+        if (!repo) return 'none';
+        const map = getDbTrackerMap();
+        if (map[repo.name]) return map[repo.name];
+        if (repo.id && map[String(repo.id)]) return map[String(repo.id)];
+
+        // Intelligent initial fallback from cached inspection if present
+        const inspection = state.inspections[repo.name] || repo.inspection;
         if (inspection && inspection.database && inspection.database.detected) {
-            const dbType = inspection.database.type || 'Yes';
-            const evidence = inspection.database.evidence || dbType;
-            return `
-                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#238636]/20 text-[#3fb950] border border-[#238636]/40 shadow-sm" title="Database detected: ${escapeHtml(evidence)}">
-                    <svg class="w-3 h-3 text-[#3fb950]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
-                    <span>${escapeHtml(dbType)}</span>
-                </span>
-            `;
+            const type = (inspection.database.type || '').toLowerCase();
+            if (type.includes('mysql') || type.includes('mariadb')) return 'MySQL';
+            if (type.includes('sqlite')) return 'SQLite';
+            if (type.includes('mongo')) return 'MongoDB';
+            if (type.includes('postgre') || type.includes('pg') || type.includes('supabase')) return 'PostgreSQL';
+            return 'Other';
         }
-
-        return `<span class="text-[#8b949e]/40 font-mono text-xs select-none pl-1">No</span>`;
+        return 'none';
     }
 
     /**
-     * Render Login / Auth badge (Green Yes or muted No)
+     * Update Database tracker for a repository and persist to localStorage
      */
-    function renderAuthCell(repo) {
-        const inspection = state.inspections[repo.name] || repo.inspection;
-        const isScanning = state.inspectingRepos.has(repo.name);
+    function setRepoDbTracker(repoName, dbValue, repoId) {
+        try {
+            const map = getDbTrackerMap();
+            if (dbValue === 'none') {
+                delete map[repoName];
+                if (repoId) delete map[String(repoId)];
+            } else {
+                map[repoName] = dbValue;
+                if (repoId) map[String(repoId)] = dbValue;
+            }
+            localStorage.setItem(DB_TRACKER_STORAGE_KEY, JSON.stringify(map));
 
-        if (isScanning && !inspection) {
-            return `
-                <span class="inline-flex items-center gap-1 text-[11px] text-[#8b949e] animate-pulse">
-                    <svg class="w-3 h-3 animate-spin text-[#3fb950]" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    <span>...</span>
-                </span>
-            `;
+            const choice = DB_TRACKER_CHOICES.find(c => c.value === dbValue);
+            const label = choice ? choice.label : dbValue;
+            showToast(`Database for "${repoName}" updated to ${label}`, 'success');
+
+            // Sync all matching select elements across views
+            const selects = document.querySelectorAll(`select[data-repo-db-name="${CSS.escape(repoName)}"]`);
+            selects.forEach(sel => {
+                sel.value = dbValue;
+                updateDbSelectStyle(sel, dbValue);
+            });
+        } catch (e) {
+            console.error('Failed to save database tracker to localStorage:', e);
+            showToast('Failed to save database selection.', 'error');
         }
-
-        if (inspection && inspection.auth && inspection.auth.detected) {
-            const evidence = inspection.auth.evidence || 'Detected';
-            return `
-                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#238636]/20 text-[#3fb950] border border-[#238636]/40 shadow-sm" title="Auth detected: ${escapeHtml(evidence)}">
-                    <svg class="w-3.5 h-3.5 text-[#3fb950]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
-                    <span>Yes</span>
-                </span>
-            `;
-        }
-
-        return `<span class="text-[#8b949e]/40 font-mono text-xs select-none pl-1">No</span>`;
     }
+
+    /**
+     * Update Tailwind styling on Database Select element dynamically based on selection
+     */
+    function updateDbSelectStyle(selectEl, dbValue) {
+        if (!selectEl) return;
+        if (dbValue === 'MySQL') {
+            selectEl.className = 'bg-[#161b22] text-[#f0883e] border border-[#f0883e]/50 focus:border-[#f0883e] focus:ring-1 focus:ring-[#f0883e] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (dbValue === 'SQLite') {
+            selectEl.className = 'bg-[#161b22] text-[#79c0ff] border border-[#388bfd]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (dbValue === 'MongoDB') {
+            selectEl.className = 'bg-[#161b22] text-[#3fb950] border border-[#3fb950]/50 focus:border-[#3fb950] focus:ring-1 focus:ring-[#3fb950] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (dbValue === 'PostgreSQL') {
+            selectEl.className = 'bg-[#161b22] text-[#58a6ff] border border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (dbValue === 'Other') {
+            selectEl.className = 'bg-[#161b22] text-[#d2a8ff] border border-[#a371f7]/50 focus:border-[#a371f7] focus:ring-1 focus:ring-[#a371f7] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else {
+            selectEl.className = 'bg-[#0d1117] text-[#8b949e] border border-[#30363d] hover:border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        }
+    }
+
+    /**
+     * Build HTML markup for Database dropdown selector
+     */
+    function buildDbSelectHtml(repo) {
+        const current = getRepoDbTracker(repo);
+        const repoNameEsc = escapeHtml(repo.name);
+        const repoId = repo.id || 0;
+
+        let styleClasses = 'bg-[#0d1117] text-[#8b949e] border border-[#30363d] hover:border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        if (current === 'MySQL') styleClasses = 'bg-[#161b22] text-[#f0883e] border border-[#f0883e]/50 focus:border-[#f0883e] focus:ring-1 focus:ring-[#f0883e] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'SQLite') styleClasses = 'bg-[#161b22] text-[#79c0ff] border border-[#388bfd]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'MongoDB') styleClasses = 'bg-[#161b22] text-[#3fb950] border border-[#3fb950]/50 focus:border-[#3fb950] focus:ring-1 focus:ring-[#3fb950] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'PostgreSQL') styleClasses = 'bg-[#161b22] text-[#58a6ff] border border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'Other') styleClasses = 'bg-[#161b22] text-[#d2a8ff] border border-[#a371f7]/50 focus:border-[#a371f7] focus:ring-1 focus:ring-[#a371f7] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+
+        return `
+            <select data-repo-db-name="${repoNameEsc}" 
+                    onchange="window.setRepoDbTracker('${repoNameEsc}', this.value, ${repoId})" 
+                    class="${styleClasses}">
+                ${DB_TRACKER_CHOICES.map(c => `
+                    <option value="${c.value}" class="bg-[#161b22] text-[#e6edf3]" ${current === c.value ? 'selected' : ''}>
+                        ${escapeHtml(c.label)}
+                    </option>
+                `).join('')}
+            </select>
+        `;
+    }
+
+    // Auth / Login Tracking Predefined Choices & Toggle (Lightweight localStorage)
+    const AUTH_TRACKER_STORAGE_KEY = 'all_repos_auth_tracker';
+
+    /**
+     * Retrieve Auth tracker map from localStorage
+     */
+    function getAuthTrackerMap() {
+        try {
+            const stored = localStorage.getItem(AUTH_TRACKER_STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    /**
+     * Retrieve assigned Auth status for a repository ('None', 'Done', 'In Progress')
+     */
+    function getRepoAuthStatus(repo) {
+        if (!repo) return 'None';
+        const map = getAuthTrackerMap();
+        if (map[repo.name]) return map[repo.name];
+        if (repo.id && map[String(repo.id)]) return map[String(repo.id)];
+
+        // Intelligent initial fallback from cached inspection if present
+        const inspection = state.inspections[repo.name] || repo.inspection;
+        if (inspection && inspection.auth && inspection.auth.detected) {
+            return 'Done';
+        }
+        return 'None';
+    }
+
+    /**
+     * Cycle through Auth status: None -> In Progress -> Done -> None
+     */
+    function toggleRepoAuthStatus(repoName, repoId) {
+        try {
+            const map = getAuthTrackerMap();
+            const current = map[repoName] || (repoId && map[String(repoId)]) || 'None';
+            let next = 'In Progress';
+            if (current === 'None') next = 'In Progress';
+            else if (current === 'In Progress') next = 'Done';
+            else if (current === 'Done') next = 'None';
+
+            if (next === 'None') {
+                delete map[repoName];
+                if (repoId) delete map[String(repoId)];
+            } else {
+                map[repoName] = next;
+                if (repoId) map[String(repoId)] = next;
+            }
+            localStorage.setItem(AUTH_TRACKER_STORAGE_KEY, JSON.stringify(map));
+
+            showToast(`Auth status for "${repoName}": ${next}`, 'success');
+
+            // Sync all matching elements across list and grid views
+            const buttons = document.querySelectorAll(`button[data-auth-tracker="${CSS.escape(repoName)}"]`);
+            buttons.forEach(btn => {
+                btn.className = getAuthStatusBadgeClasses(next);
+                btn.innerHTML = buildAuthStatusBadgeInnerHtml(next);
+                btn.title = `Auth / Login status: ${next} (Click to toggle: None → In Progress → Done)`;
+            });
+        } catch (e) {
+            console.error('Failed to toggle auth status:', e);
+            showToast('Failed to update auth status.', 'error');
+        }
+    }
+
+    /**
+     * Return Tailwind classes for Auth status badge button
+     */
+    function getAuthStatusBadgeClasses(status) {
+        if (status === 'Done') {
+            return 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#238636]/20 text-[#3fb950] border border-[#238636]/40 hover:brightness-110 active:scale-95 transition cursor-pointer shadow-sm select-none';
+        } else if (status === 'In Progress') {
+            return 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#d29922]/20 text-[#d29922] border border-[#d29922]/40 hover:brightness-110 active:scale-95 transition cursor-pointer shadow-sm select-none';
+        } else {
+            return 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-[#161b22] text-[#8b949e] border border-[#30363d] hover:border-[#58a6ff]/50 active:scale-95 transition cursor-pointer select-none';
+        }
+    }
+
+    /**
+     * Build inner HTML for Auth status badge button
+     */
+    function buildAuthStatusBadgeInnerHtml(status) {
+        if (status === 'Done') {
+            return `
+                <svg class="w-3.5 h-3.5 text-[#3fb950]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>Done</span>
+            `;
+        } else if (status === 'In Progress') {
+            return `
+                <span class="w-2 h-2 rounded-full bg-[#d29922] animate-pulse"></span>
+                <span>In Progress</span>
+            `;
+        } else {
+            return `
+                <span class="opacity-50 text-[10px]">&bull;</span>
+                <span>None</span>
+            `;
+        }
+    }
+
+    /**
+     * Build HTML markup for Auth status toggle button
+     */
+    function buildAuthStatusToggleHtml(repo) {
+        const status = getRepoAuthStatus(repo);
+        const repoNameEsc = escapeHtml(repo.name);
+        const repoId = repo.id || 0;
+        const classes = getAuthStatusBadgeClasses(status);
+        const inner = buildAuthStatusBadgeInnerHtml(status);
+
+        return `
+            <button type="button" 
+                    data-auth-tracker="${repoNameEsc}" 
+                    onclick="window.toggleRepoAuthStatus('${repoNameEsc}', ${repoId})" 
+                    class="${classes}" 
+                    title="Auth / Login status: ${status} (Click to toggle: None → In Progress → Done)">
+                ${inner}
+            </button>
+        `;
+    }
+
+    // Retain compatibility aliases
+    function renderDatabaseCell(repo) { return buildDbSelectHtml(repo); }
+    function renderAuthCell(repo) { return buildAuthStatusToggleHtml(repo); }
 
     // AI Dev / Assistant Predefined Choices
     const AI_TOOLS_STORAGE_KEY = 'all_repos_ai_tools';
@@ -362,7 +555,7 @@
     // Prompt Engineer / Explainer Predefined Choices
     const PROMPT_TOOLS_STORAGE_KEY = 'all_repos_prompt_tools';
     const PROMPT_TOOL_CHOICES = [
-        { value: 'none', label: 'Unassigned / None' },
+        { value: 'none', label: 'None' },
         { value: 'Gemini', label: 'Gemini' },
         { value: 'ChatGPT', label: 'ChatGPT' },
         { value: 'Claude', label: 'Claude' },
@@ -651,8 +844,61 @@
         'Unspecified': '#6e7681',
     };
 
+    // Soft Blue / Slate Theme Management
+    const THEME_STORAGE_KEY = 'all_repos_theme';
+
+    /**
+     * Apply active theme ('dark' or 'soft-blue')
+     */
+    function applyTheme(theme) {
+        const isSoftBlue = (theme === 'soft-blue');
+        if (isSoftBlue) {
+            document.documentElement.classList.add('theme-soft-blue');
+            if (elements.themeIconDark) elements.themeIconDark.classList.remove('hidden');
+            if (elements.themeIconLight) elements.themeIconLight.classList.add('hidden');
+            if (elements.themeToggleText) elements.themeToggleText.textContent = 'Soft Blue';
+        } else {
+            document.documentElement.classList.remove('theme-soft-blue');
+            if (elements.themeIconDark) elements.themeIconDark.classList.add('hidden');
+            if (elements.themeIconLight) elements.themeIconLight.classList.remove('hidden');
+            if (elements.themeToggleText) elements.themeToggleText.textContent = 'Dark';
+        }
+    }
+
+    /**
+     * Toggle Theme between Dark and Soft Blue Slate
+     */
+    function toggleTheme() {
+        const isCurrentlySoftBlue = document.documentElement.classList.contains('theme-soft-blue');
+        const nextTheme = isCurrentlySoftBlue ? 'dark' : 'soft-blue';
+        try {
+            localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+        } catch (e) {
+            console.error('Failed to save theme preference:', e);
+        }
+        applyTheme(nextTheme);
+        showToast(`Theme switched to ${nextTheme === 'soft-blue' ? 'Soft Blue Slate' : 'Dark Theme'}`, 'info');
+    }
+
+    /**
+     * Initialize Theme on page load
+     */
+    function initTheme() {
+        let savedTheme = 'dark';
+        try {
+            savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || 'dark';
+        } catch (e) {
+            savedTheme = 'dark';
+        }
+        applyTheme(savedTheme);
+    }
+
     // DOM Elements Cache
     const elements = {
+        themeToggleBtn: document.getElementById('themeToggleBtn'),
+        themeIconDark: document.getElementById('themeIconDark'),
+        themeIconLight: document.getElementById('themeIconLight'),
+        themeToggleText: document.getElementById('themeToggleText'),
         loadingState: document.getElementById('loadingState'),
         errorBanner: document.getElementById('errorBanner'),
         errorMessage: document.getElementById('errorMessage'),
@@ -901,10 +1147,7 @@
             });
             saveCachedInspections();
 
-            // Queue background architecture inspection for uninspected repositories
-            state.repositories.forEach(repo => {
-                queueRepoInspection(repo);
-            });
+            // Lightweight mode: relies on fast client-side localStorage trackers without heavy background API scans
 
             populateLanguageOptions();
             applyFiltersAndSort();
@@ -1058,12 +1301,14 @@
                 const topics = (repo.topics || []).join(' ').toLowerCase();
                 const aiTool = (getRepoAiTool(repo) || '').toLowerCase();
                 const promptTool = (getRepoPromptTool(repo) || '').toLowerCase();
+                const dbTracker = (getRepoDbTracker(repo) || '').toLowerCase();
+                const authStatus = (getRepoAuthStatus(repo) || '').toLowerCase();
                 const inspection = state.inspections[repo.name] || repo.inspection;
                 const techStack = (inspection && inspection.tech_stack && inspection.tech_stack.name ? inspection.tech_stack.name : '').toLowerCase();
                 const dbInfo = (inspection && inspection.database && inspection.database.detected ? (inspection.database.type + ' ' + (inspection.database.evidence || '')) : '').toLowerCase();
                 const authInfo = (inspection && inspection.auth && inspection.auth.detected ? ('auth login authentication ' + (inspection.auth.evidence || '')) : '').toLowerCase();
 
-                return name.includes(q) || desc.includes(q) || lang.includes(q) || topics.includes(q) || aiTool.includes(q) || promptTool.includes(q) || techStack.includes(q) || dbInfo.includes(q) || authInfo.includes(q);
+                return name.includes(q) || desc.includes(q) || lang.includes(q) || topics.includes(q) || aiTool.includes(q) || promptTool.includes(q) || dbTracker.includes(q) || authStatus.includes(q) || techStack.includes(q) || dbInfo.includes(q) || authInfo.includes(q);
             });
         }
 
@@ -1505,7 +1750,7 @@
                         <th class="py-3 px-4">Live App</th>
                         <th class="py-3 px-4">Tech Stack</th>
                         <th class="py-3 px-4">Database</th>
-                        <th class="py-3 px-4">Login / Auth</th>
+                        <th class="py-3 px-4">Auth / Login</th>
                         <th class="py-3 px-4">AI Dev / Tool</th>
                         <th class="py-3 px-4">Prompt / Explainer</th>
                         <th class="py-3 px-4">Updated</th>
@@ -1889,6 +2134,11 @@
             elements.clearNotesBtn.addEventListener('click', clearAllNotes);
         }
 
+        // Soft Blue Slate / Dark Theme toggle
+        if (elements.themeToggleBtn) {
+            elements.themeToggleBtn.addEventListener('click', toggleTheme);
+        }
+
         // Keyboard Shortcuts
         document.addEventListener('keydown', (e) => {
             // Esc to close notes drawer or modal
@@ -1950,6 +2200,18 @@
         setRepoPromptTool(name, val, id);
     };
 
+    window.setRepoDbTracker = function (name, val, id) {
+        setRepoDbTracker(name, val, id);
+    };
+
+    window.toggleRepoAuthStatus = function (name, id) {
+        toggleRepoAuthStatus(name, id);
+    };
+
+    window.toggleTheme = function () {
+        toggleTheme();
+    };
+
     window.openNotesDrawer = function () {
         openNotesDrawer();
     };
@@ -1983,6 +2245,7 @@
 
     // Initialize application
     function init() {
+        initTheme();
         setupEventListeners();
         loadNotes();
         fetchRepositories(false);

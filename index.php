@@ -46,6 +46,16 @@
             }
         };
     </script>
+    <!-- Immediate Theme Application to prevent FOUC -->
+    <script>
+        (function() {
+            try {
+                if (localStorage.getItem('all_repos_theme') === 'soft-blue') {
+                    document.documentElement.classList.add('theme-soft-blue');
+                }
+            } catch (e) {}
+        })();
+    </script>
     <style>
         /* Custom scrollbar matching GitHub dark mode */
         ::-webkit-scrollbar {
@@ -69,6 +79,154 @@
         }
         .skeleton {
             animation: skeletonPulse 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        /* ==========================================================================
+           Soft Blue / Slate Theme (Minimalist Dashboard Style)
+           Palette:
+             - Background: #F0F4F8 / #E8EEF5
+             - Cards/Surface: #DFE8F2 / #D5E2F0
+             - Borders: #BDCFE2
+             - Text: #1E293B
+             - Accents: #2563EB / #3B82F6
+           ========================================================================== */
+        html.theme-soft-blue,
+        html.theme-soft-blue body {
+            background-color: #F0F4F8 !important;
+            color: #1E293B !important;
+        }
+
+        html.theme-soft-blue header,
+        html.theme-soft-blue footer,
+        html.theme-soft-blue #notesDrawerPanel,
+        html.theme-soft-blue #repoModal > div > div,
+        html.theme-soft-blue .bg-\[\#161b22\] {
+            background-color: #DFE8F2 !important;
+            border-color: #BDCFE2 !important;
+            color: #1E293B !important;
+        }
+
+        html.theme-soft-blue .bg-\[\#0d1117\] {
+            background-color: #E8EEF5 !important;
+            border-color: #BDCFE2 !important;
+            color: #1E293B !important;
+        }
+
+        html.theme-soft-blue .bg-\[\#21262d\] {
+            background-color: #D5E2F0 !important;
+            border-color: #BDCFE2 !important;
+            color: #1E293B !important;
+        }
+
+        html.theme-soft-blue .hover\:bg-\[\#30363d\]:hover,
+        html.theme-soft-blue .hover\:bg-\[\#21262d\]:hover {
+            background-color: #C5D5E8 !important;
+            color: #0F172A !important;
+        }
+
+        html.theme-soft-blue .hover\:bg-\[\#161b22\]\/70:hover {
+            background-color: rgba(213, 226, 240, 0.7) !important;
+        }
+
+        html.theme-soft-blue .border-\[\#30363d\],
+        html.theme-soft-blue .border-\[\#21262d\],
+        html.theme-soft-blue tr.border-b {
+            border-color: #BDCFE2 !important;
+        }
+
+        html.theme-soft-blue .text-\[\#e6edf3\],
+        html.theme-soft-blue .text-white {
+            color: #1E293B !important;
+        }
+
+        html.theme-soft-blue .text-\[\#c9d1d9\] {
+            color: #334155 !important;
+        }
+
+        html.theme-soft-blue .text-\[\#8b949e\] {
+            color: #64748B !important;
+        }
+
+        html.theme-soft-blue .text-\[\#6e7681\] {
+            color: #94A3B8 !important;
+        }
+
+        html.theme-soft-blue .text-\[\#58a6ff\] {
+            color: #2563EB !important;
+        }
+
+        html.theme-soft-blue .hover\:text-\[\#58a6ff\]:hover {
+            color: #1D4ED8 !important;
+        }
+
+        html.theme-soft-blue .text-\[\#79c0ff\] {
+            color: #2563EB !important;
+        }
+
+        html.theme-soft-blue .border-\[\#58a6ff\],
+        html.theme-soft-blue .hover\:border-\[\#58a6ff\]:hover,
+        html.theme-soft-blue .hover\:border-\[\#58a6ff\]\/50:hover,
+        html.theme-soft-blue .hover\:border-\[\#58a6ff\]\/40:hover {
+            border-color: #3B82F6 !important;
+        }
+
+        html.theme-soft-blue input,
+        html.theme-soft-blue textarea,
+        html.theme-soft-blue select {
+            background-color: #E8EEF5 !important;
+            border-color: #BDCFE2 !important;
+            color: #1E293B !important;
+        }
+
+        html.theme-soft-blue input::placeholder,
+        html.theme-soft-blue textarea::placeholder {
+            color: #94A3B8 !important;
+        }
+
+        html.theme-soft-blue option {
+            background-color: #DFE8F2 !important;
+            color: #1E293B !important;
+        }
+
+        html.theme-soft-blue .bg-\[\#1b2533\] {
+            background-color: #DBEAFE !important;
+            border-color: #BFDBFE !important;
+            color: #1D4ED8 !important;
+        }
+
+        html.theme-soft-blue .bg-\[\#382352\] {
+            background-color: #F3E8FF !important;
+            border-color: #E9D5FF !important;
+            color: #7E22CE !important;
+        }
+
+        html.theme-soft-blue .bg-\[\#1f2937\] {
+            background-color: #E2E8F0 !important;
+            color: #2563EB !important;
+        }
+
+        html.theme-soft-blue .hover\:bg-\[\#2d3748\]:hover {
+            background-color: #CBD5E1 !important;
+        }
+
+        html.theme-soft-blue #notesDrawerBackdrop {
+            background-color: rgba(15, 23, 42, 0.4) !important;
+        }
+
+        html.theme-soft-blue #repoModal {
+            background-color: rgba(15, 23, 42, 0.5) !important;
+        }
+
+        html.theme-soft-blue ::-webkit-scrollbar-track {
+            background: #F0F4F8;
+        }
+
+        html.theme-soft-blue ::-webkit-scrollbar-thumb {
+            background: #BDCFE2;
+        }
+
+        html.theme-soft-blue ::-webkit-scrollbar-thumb:hover {
+            background: #94A3B8;
         }
     </style>
 </head>
@@ -114,6 +272,16 @@
                         title="Force reload all repositories from GitHub API">
                     <svg id="refreshIcon" class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     <span class="hidden sm:inline">Refresh</span>
+                </button>
+
+                <!-- Soft Blue Slate / Dark Theme Toggle Button -->
+                <button id="themeToggleBtn" 
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white border border-[#30363d] hover:border-[#58a6ff]/60 transition active:scale-95 shadow-sm"
+                        title="Toggle between Dark Theme and Soft Blue Slate Theme"
+                        aria-label="Toggle Theme">
+                    <svg id="themeIconDark" class="w-3.5 h-3.5 text-[#e3b341] hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    <svg id="themeIconLight" class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                    <span id="themeToggleText" class="hidden sm:inline">Theme</span>
                 </button>
 
                 <!-- Work Notes & Progress Drawer Trigger -->
