@@ -844,54 +844,66 @@
         'Unspecified': '#6e7681',
     };
 
-    // Soft Blue / Slate Theme Management
+    // Custom Palette / Dark Theme Management
     const THEME_STORAGE_KEY = 'all_repos_theme';
+    let isTogglingTheme = false;
 
     /**
-     * Apply active theme ('dark' or 'soft-blue')
+     * Apply active theme ('dark' or 'custom')
      */
     function applyTheme(theme) {
-        const isSoftBlue = (theme === 'soft-blue');
-        if (isSoftBlue) {
-            document.documentElement.classList.add('theme-soft-blue');
-            if (elements.themeIconDark) elements.themeIconDark.classList.remove('hidden');
-            if (elements.themeIconLight) elements.themeIconLight.classList.add('hidden');
-            if (elements.themeToggleText) elements.themeToggleText.textContent = 'Soft Blue';
-        } else {
-            document.documentElement.classList.remove('theme-soft-blue');
-            if (elements.themeIconDark) elements.themeIconDark.classList.add('hidden');
-            if (elements.themeIconLight) elements.themeIconLight.classList.remove('hidden');
+        const isDark = (theme === 'dark');
+        const root = document.documentElement;
+        if (isDark) {
+            root.classList.remove('theme-custom');
+            root.classList.add('theme-dark');
+            if (elements.themeIconDark) elements.themeIconDark.classList.toggle('hidden', true);
+            if (elements.themeIconLight) elements.themeIconLight.classList.toggle('hidden', false);
             if (elements.themeToggleText) elements.themeToggleText.textContent = 'Dark';
+        } else {
+            root.classList.remove('theme-dark');
+            root.classList.add('theme-custom');
+            if (elements.themeIconDark) elements.themeIconDark.classList.toggle('hidden', false);
+            if (elements.themeIconLight) elements.themeIconLight.classList.toggle('hidden', true);
+            if (elements.themeToggleText) elements.themeToggleText.textContent = 'Warm Theme';
         }
     }
 
     /**
-     * Toggle Theme between Dark and Soft Blue Slate
+     * Toggle Theme between Custom Warm Palette and Dark Mode
      */
     function toggleTheme() {
-        const isCurrentlySoftBlue = document.documentElement.classList.contains('theme-soft-blue');
-        const nextTheme = isCurrentlySoftBlue ? 'dark' : 'soft-blue';
+        if (isTogglingTheme) return;
+        isTogglingTheme = true;
+        setTimeout(() => { isTogglingTheme = false; }, 150);
+
+        const isCurrentlyDark = document.documentElement.classList.contains('theme-dark');
+        const nextTheme = isCurrentlyDark ? 'custom' : 'dark';
         try {
             localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
         } catch (e) {
             console.error('Failed to save theme preference:', e);
         }
         applyTheme(nextTheme);
-        showToast(`Theme switched to ${nextTheme === 'soft-blue' ? 'Soft Blue Slate' : 'Dark Theme'}`, 'info');
+        showToast(nextTheme === 'dark' ? 'Dark Theme activated' : 'Warm Theme activated', 'info');
     }
 
     /**
      * Initialize Theme on page load
      */
     function initTheme() {
-        let savedTheme = 'dark';
+        let savedTheme = 'custom';
         try {
-            savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || 'dark';
+            savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || 'custom';
         } catch (e) {
-            savedTheme = 'dark';
+            savedTheme = 'custom';
         }
         applyTheme(savedTheme);
     }
+
+    // Expose functions globally for immediate accessibility
+    window.applyTheme = applyTheme;
+    window.toggleTheme = toggleTheme;
 
     // DOM Elements Cache
     const elements = {
@@ -2134,8 +2146,8 @@
             elements.clearNotesBtn.addEventListener('click', clearAllNotes);
         }
 
-        // Soft Blue Slate / Dark Theme toggle
-        if (elements.themeToggleBtn) {
+        // Custom Warm / Dark Theme toggle (only bind if not already handled by inline onclick)
+        if (elements.themeToggleBtn && !elements.themeToggleBtn.getAttribute('onclick')) {
             elements.themeToggleBtn.addEventListener('click', toggleTheme);
         }
 
