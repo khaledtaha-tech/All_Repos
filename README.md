@@ -37,7 +37,16 @@ Target Repository: [https://github.com/khaledtaha-tech/All_Repos](https://github
 - **"Copy All Visible Names & URLs"**: Instantly copy a newline-separated list of all repository names or GitHub URLs currently visible under the active search query and filter criteria.
 - **Toast Notifications**: Non-intrusive floating feedback confirms every successful copy operation.
 
-### 4. Work Notes & Progress Drawer
+### 4. Automated Architecture & Feature Detection
+- **Tech Stack Detection**: Automatically inspects repository trees and package manifests (`package.json`, `composer.json`, `pubspec.yaml`, `requirements.txt`, etc.) to detect framework/runtime (e.g., `Next.js`, `Vite`, `React`, `Vue`, `Native PHP`, `Laravel`, `Express`, `Flutter`, `Django`, `FastAPI`, `Tailwind CSS`, etc.).
+- **Database Detection**: Identifies database schema files, migrations, or client drivers (`.sql`, `migrations/`, `schema.prisma`, `sqlite`, `mysql`, `pg`, `mongodb`, `supabase`, `redis`, etc.) with distinctive badges (e.g., `SQLite`, `Prisma`, `MySQL`, `PostgreSQL`, `MongoDB`, `Supabase`, `SQL`) or muted `No`.
+- **Login / Authentication Detection**: Detects authentication entry points and libraries (`login.*`, `auth.*`, `signin.*`, NextAuth, Passport, JWT, Firebase Auth, Supabase Auth, etc.) displaying a green `Yes` badge or muted `No`.
+- **Multi-Tier Rate-Limit Protection**:
+  - **Server-Side Inspection Cache**: Caches tree and manifest inspections in `cache/inspections/{repo}.json` indexed by repository commit timestamp (`pushed_at`).
+  - **Client LocalStorage Cache**: Retains inspected repository states in `all_repos_inspections_v2` for instantaneous page loads.
+  - **Controlled Background Concurrency**: Non-blocking queue running with concurrency limit (3) updating specific DOM cells on the fly without interrupting user scrolling.
+
+### 5. Work Notes & Progress Drawer
 - **Persistent Notes Drawer**: Slide-over panel accessible directly from the top navigation bar to track engineering status, updates, and development roadmaps.
 - **Structured Fields**:
   - `What Was Done / Completed`: Track accomplished tasks, resolved issues, and deployed commits.
@@ -46,14 +55,14 @@ Target Repository: [https://github.com/khaledtaha-tech/All_Repos](https://github
 - **Navbar Indicator**: Animated pulse badge in the top navbar signals when notes are present.
 - **One-Click Export**: Format and copy all notes into clean Markdown with a single click.
 
-### 5. Live Search & Responsive Widescreen Layout
-- **Widescreen Layout Optimization**: Full-width fluid container (`max-w-[98%] 2xl:max-w-[96%]`) eliminating cramped margins on widescreen displays and maximizing horizontal table readability.
-- **Real-Time Instant Search**: Filter by repository name, description, primary language, topic tags, assigned AI tool, or prompt explainer with instant feedback.
+### 6. Live Search & Responsive Widescreen Layout
+- **Widescreen Layout Optimization**: Full-width fluid layout container (`w-full max-w-[99%]`) utilizing available display width. Table list container features smooth horizontal scrolling (`min-w-[1450px]`) ensuring all columns remain readable without clipping.
+- **Real-Time Instant Search**: Filter by repository name, description, primary language, topic tags, assigned AI tool, prompt explainer, detected tech stack, database, or auth with instant feedback.
 - **Visibility Toggle**: Filter between **All**, **Public**, **Private**, **Sources Only**, and **Forks**.
 - **Dynamic Language Filter**: Automatically discovers and aggregates all languages present across your repositories, showing counts for each.
 - **View Modes**: Switch between responsive Grid Cards and a compact Table List view.
 
-### 6. API Resilience & Rate Limit Monitoring
+### 7. API Resilience & Rate Limit Monitoring
 - **Live Rate Limit Monitor**: Tracks GitHub API quota usage (`remaining / limit`) with countdown reset timers.
 - **Built-In Local Caching**: Optional JSON-based caching to conserve API rate limits while allowing one-click manual refresh.
 - **Secure Secret Architecture**: Access tokens are kept strictly in `config.php` (which is excluded from Git via `.gitignore`) or loaded from environment variables (`GITHUB_TOKEN`).

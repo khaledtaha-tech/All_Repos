@@ -177,6 +177,423 @@ function parseRateLimits(array $headers): array {
     ];
 }
 
+/**
+ * Automated Feature & Architecture Detection via GitHub API
+ *
+ * Inspects:
+ * 1. Database: .sql files, migrations folder, schema.prisma, sqlite, or DB packages
+ * 2. Login / Auth: login.*, auth.*, signin.*, or auth dependencies
+ * 3. Tech Stack: runtime & frameworks (React, Next.js, Express, Native PHP, Vite, etc.)
+ *
+ * Caches results to cache/inspections/{repo}.json to conserve API rate limits.
+ */
+function inspectRepository(string $owner, string $repoName, string $branch, string $pushedAt, string $token, array $config, bool $forceRefresh = false): array {
+    $inspectionsDir = __DIR__ . '/cache/inspections';
+    if (!is_dir($inspectionsDir)) {
+        @mkdir($inspectionsDir, 0755, true);
+    }
+
+    $cleanRepoName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $repoName);
+    $cacheFile = $inspectionsDir . '/' . $cleanRepoName . '.json';
+
+    if (!$forceRefresh && file_exists($cacheFile)) {
+        $raw = @file_get_contents($cacheFile);
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded) && isset($decoded['database'])) {
+            if (empty($pushedAt) || empty($decoded['pushed_at']) || $decoded['pushed_at'] === $pushedAt) {
+                $decoded['cached'] = true;
+                return $decoded;
+            }
+        }
+    }
+
+    // Attempt to fetch git tree recursively
+    $targetBranch = !empty($branch) ? $branch : 'main';
+    $treeEndpoint = sprintf('/repos/%s/%s/git/trees/%s?recursive=1', urlencode($owner), urlencode($repoName), urlencode($targetBranch));
+    $treeRes = makeGitHubRequest($treeEndpoint, $token, $config);
+
+    // If main returned 404, fallback to master
+    if ($treeRes['status'] === 404 && $targetBranch === 'main') {
+        $targetBranch = 'master';
+        $treeEndpoint = sprintf('/repos/%s/%s/git/trees/%s?recursive=1', urlencode($owner), urlencode($repoName), urlencode($targetBranch));
+        $treeRes = makeGitHubRequest($treeEndpoint, $token, $config);
+    }
+
+    // If empty repo or not found
+    if ($treeRes['status'] !== 200) {
+        $emptyResult = [
+            'repo' => $repoName,
+            'pushed_at' => $pushedAt,
+            'inspected_at' => date('c'),
+            'cached' => false,
+            'database' => [
+                'detected' => false,
+                'type' => 'No',
+                'evidence' => '',
+            ],
+            'auth' => [
+                'detected' => false,
+                'evidence' => '',
+            ],
+            'tech_stack' => [
+                'name' => 'None',
+                'framework' => 'None',
+                'runtime' => 'None',
+                'evidence' => 'No tree or empty repository',
+            ],
+        ];
+        return $emptyResult;
+    }
+
+    $treeData = json_decode($treeRes['body'], true);
+    $treeList = is_array($treeData) && isset($treeData['tree']) && is_array($treeData['tree']) ? $treeData['tree'] : [];
+
+    $filePaths = [];
+    $hasPackageJson = false;
+    $hasComposerJson = false;
+
+    foreach ($treeList as $item) {
+        $p = $item['path'] ?? '';
+        if ($p) {
+            $filePaths[] = $p;
+            if ($p === 'package.json') $hasPackageJson = true;
+            if ($p === 'composer.json') $hasComposerJson = true;
+        }
+    }
+
+    $packageDeps = [];
+    if ($hasPackageJson) {
+        $pkgRes = makeGitHubRequest(sprintf('/repos/%s/%s/contents/package.json', urlencode($owner), urlencode($repoName)), $token, $config);
+        if ($pkgRes['status'] === 200) {
+            $pkgData = json_decode($pkgRes['body'], true);
+            if (!empty($pkgData['content'])) {
+                $pkgJson = json_decode(base64_decode($pkgData['content']), true);
+                if (is_array($pkgJson)) {
+                    $packageDeps = array_merge(
+                        array_keys($pkgJson['dependencies'] ?? []),
+                        array_keys($pkgJson['devDependencies'] ?? [])
+                    );
+                }
+            }
+        }
+    }
+
+    $composerDeps = [];
+    if ($hasComposerJson) {
+        $compRes = makeGitHubRequest(sprintf('/repos/%s/%s/contents/composer.json', urlencode($owner), urlencode($repoName)), $token, $config);
+        if ($compRes['status'] === 200) {
+            $compData = json_decode($compRes['body'], true);
+            if (!empty($compData['content'])) {
+                $compJson = json_decode(base64_decode($compData['content']), true);
+                if (is_array($compJson)) {
+                    $composerDeps = array_merge(
+                        array_keys($compJson['require'] ?? []),
+                        array_keys($compJson['require-dev'] ?? [])
+                    );
+                }
+            }
+        }
+    }
+
+    $allDeps = array_map('strtolower', array_merge($packageDeps, $composerDeps));
+
+    // 1. Analyze Database
+    $dbDetected = false;
+    $dbType = 'No';
+    $dbEvidence = '';
+
+    if (in_array('@prisma/client', $allDeps) || in_array('prisma', $allDeps)) {
+        $dbDetected = true;
+        $dbType = 'Prisma';
+        $dbEvidence = 'Prisma ORM dependency';
+    } elseif (in_array('drizzle-orm', $allDeps)) {
+        $dbDetected = true;
+        $dbType = 'Drizzle';
+        $dbEvidence = 'Drizzle ORM dependency';
+    } elseif (in_array('better-sqlite3', $allDeps) || in_array('sqlite3', $allDeps)) {
+        $dbDetected = true;
+        $dbType = 'SQLite';
+        $dbEvidence = 'SQLite driver dependency';
+    } elseif (in_array('@supabase/supabase-js', $allDeps) || in_array('supabase', $allDeps)) {
+        $dbDetected = true;
+        $dbType = 'Supabase';
+        $dbEvidence = 'Supabase client';
+    } elseif (in_array('firebase', $allDeps) || in_array('firebase-admin', $allDeps)) {
+        $dbDetected = true;
+        $dbType = 'Firebase';
+        $dbEvidence = 'Firebase / Firestore dependency';
+    } elseif (in_array('mongoose', $allDeps) || in_array('mongodb', $allDeps)) {
+        $dbDetected = true;
+        $dbType = 'MongoDB';
+        $dbEvidence = 'MongoDB / Mongoose dependency';
+    } elseif (in_array('pg', $allDeps) || in_array('postgres', $allDeps)) {
+        $dbDetected = true;
+        $dbType = 'PostgreSQL';
+        $dbEvidence = 'PostgreSQL pg client';
+    } elseif (in_array('mysql', $allDeps) || in_array('mysql2', $allDeps)) {
+        $dbDetected = true;
+        $dbType = 'MySQL';
+        $dbEvidence = 'MySQL driver dependency';
+    } elseif (in_array('sequelize', $allDeps)) {
+        $dbDetected = true;
+        $dbType = 'Sequelize';
+        $dbEvidence = 'Sequelize ORM';
+    } elseif (in_array('illuminate/database', $allDeps)) {
+        $dbDetected = true;
+        $dbType = 'Eloquent';
+        $dbEvidence = 'Laravel / Eloquent ORM';
+    }
+
+    if (!$dbDetected) {
+        foreach ($filePaths as $path) {
+            $lower = strtolower($path);
+            $base = basename($lower);
+            if ($base === 'schema.prisma') {
+                $dbDetected = true;
+                $dbType = 'Prisma';
+                $dbEvidence = 'schema.prisma';
+                break;
+            } elseif (preg_match('/\.sqlite3?$/i', $lower) || preg_match('/\.db$/i', $lower)) {
+                $dbDetected = true;
+                $dbType = 'SQLite';
+                $dbEvidence = basename($path);
+                break;
+            } elseif (strpos($base, 'drizzle.config') !== false) {
+                $dbDetected = true;
+                $dbType = 'Drizzle';
+                $dbEvidence = basename($path);
+                break;
+            } elseif (strpos($lower, 'supabase/') === 0) {
+                $dbDetected = true;
+                $dbType = 'Supabase';
+                $dbEvidence = 'supabase/ schema';
+                break;
+            } elseif ($base === 'firestore.rules') {
+                $dbDetected = true;
+                $dbType = 'Firestore';
+                $dbEvidence = 'firestore.rules';
+                break;
+            } elseif (preg_match('/(^|\/)(migrations?|database\/migrations)\//i', $lower)) {
+                $dbDetected = true;
+                $dbType = 'Migrations';
+                $dbEvidence = 'migrations/ folder';
+                break;
+            } elseif (preg_match('/\.sql$/i', $lower)) {
+                $dbDetected = true;
+                $dbType = 'SQL';
+                $dbEvidence = basename($path);
+                break;
+            } elseif (strpos($lower, 'alembic') !== false) {
+                $dbDetected = true;
+                $dbType = 'Alembic';
+                $dbEvidence = 'alembic migrations';
+                break;
+            }
+        }
+    }
+
+    // 2. Analyze Login / Auth
+    $authDetected = false;
+    $authEvidence = '';
+
+    $authDepsList = ['next-auth', '@auth/core', 'passport', 'jsonwebtoken', 'bcrypt', 'bcryptjs', '@clerk/nextjs', 'lucia', 'auth0', '@auth0/nextjs-auth0', 'supertokens-node', 'laravel/sanctum', 'laravel/breeze', 'laravel/jetstream', 'firebase/php-jwt'];
+    foreach ($authDepsList as $ad) {
+        if (in_array(strtolower($ad), $allDeps)) {
+            $authDetected = true;
+            $authEvidence = $ad . ' package';
+            break;
+        }
+    }
+
+    if (!$authDetected) {
+        foreach ($filePaths as $path) {
+            $lower = strtolower($path);
+            $base = basename($lower);
+            if (preg_match('/^(login|signin|signup|register|logout|auth|oauth|session)\.[a-z0-9]+$/i', $base)) {
+                $authDetected = true;
+                $authEvidence = basename($path);
+                break;
+            }
+            if (preg_match('/[\/\._](auth|login|signin|session|oauth|jwt)[\/\._]/i', $lower) || preg_match('/(^|\/)(auth|login|sessions)\//i', $lower)) {
+                $authDetected = true;
+                $authEvidence = $path;
+                break;
+            }
+        }
+    }
+
+    // 3. Analyze Tech Stack
+    $techName = 'HTML5 / JS';
+    $techFramework = 'Vanilla';
+    $techRuntime = 'Web';
+    $techEvidence = '';
+
+    if (in_array('next', $allDeps)) {
+        $techName = 'Next.js';
+        $techFramework = 'Next.js';
+        $techRuntime = 'Node.js';
+        $techEvidence = 'next dependency';
+    } elseif (in_array('nuxt', $allDeps)) {
+        $techName = 'Nuxt';
+        $techFramework = 'Nuxt';
+        $techRuntime = 'Node.js';
+        $techEvidence = 'nuxt dependency';
+    } elseif (in_array('astro', $allDeps)) {
+        $techName = 'Astro';
+        $techFramework = 'Astro';
+        $techRuntime = 'Node.js';
+        $techEvidence = 'astro dependency';
+    } elseif (in_array('@remix-run/react', $allDeps)) {
+        $techName = 'Remix';
+        $techFramework = 'Remix';
+        $techRuntime = 'Node.js';
+        $techEvidence = 'remix dependency';
+    } elseif (in_array('@sveltejs/kit', $allDeps) || in_array('svelte', $allDeps)) {
+        $techName = 'Svelte';
+        $techFramework = 'SvelteKit';
+        $techRuntime = 'Node.js';
+        $techEvidence = 'svelte dependency';
+    } elseif (in_array('laravel/framework', $allDeps)) {
+        $techName = 'Laravel';
+        $techFramework = 'Laravel';
+        $techRuntime = 'PHP';
+        $techEvidence = 'laravel/framework';
+    } elseif (in_array('express', $allDeps)) {
+        $techName = 'Express';
+        $techFramework = 'Express';
+        $techRuntime = 'Node.js';
+        $techEvidence = 'express dependency';
+    } elseif (in_array('fastify', $allDeps)) {
+        $techName = 'Fastify';
+        $techFramework = 'Fastify';
+        $techRuntime = 'Node.js';
+        $techEvidence = 'fastify dependency';
+    } elseif (in_array('@nestjs/core', $allDeps)) {
+        $techName = 'NestJS';
+        $techFramework = 'NestJS';
+        $techRuntime = 'Node.js';
+        $techEvidence = '@nestjs/core';
+    } elseif (in_array('react', $allDeps)) {
+        $techName = in_array('vite', $allDeps) ? 'Vite / React' : 'React';
+        $techFramework = 'React';
+        $techRuntime = 'Browser';
+        $techEvidence = 'react dependency';
+    } elseif (in_array('vue', $allDeps)) {
+        $techName = in_array('vite', $allDeps) ? 'Vite / Vue' : 'Vue';
+        $techFramework = 'Vue';
+        $techRuntime = 'Browser';
+        $techEvidence = 'vue dependency';
+    } elseif (in_array('vite', $allDeps)) {
+        $techName = 'Vite';
+        $techFramework = 'Vite';
+        $techRuntime = 'Browser';
+        $techEvidence = 'vite dependency';
+    }
+
+    if ($techName === 'HTML5 / JS') {
+        foreach ($filePaths as $path) {
+            $lower = strtolower($path);
+            $base = basename($lower);
+            if (strpos($base, 'next.config.') === 0) {
+                $techName = 'Next.js';
+                $techFramework = 'Next.js';
+                $techRuntime = 'Node.js';
+                $techEvidence = $base;
+                break;
+            } elseif (strpos($base, 'vite.config.') === 0) {
+                $techName = 'Vite';
+                $techFramework = 'Vite';
+                $techRuntime = 'Browser';
+                $techEvidence = $base;
+                break;
+            } elseif (strpos($base, 'nuxt.config.') === 0) {
+                $techName = 'Nuxt';
+                $techFramework = 'Nuxt';
+                $techRuntime = 'Node.js';
+                $techEvidence = $base;
+                break;
+            } elseif ($base === 'artisan') {
+                $techName = 'Laravel';
+                $techFramework = 'Laravel';
+                $techRuntime = 'PHP';
+                $techEvidence = 'artisan file';
+                break;
+            } elseif ($base === 'pubspec.yaml') {
+                $techName = 'Flutter';
+                $techFramework = 'Flutter';
+                $techRuntime = 'Dart';
+                $techEvidence = 'pubspec.yaml';
+                break;
+            } elseif ($base === 'cargo.toml') {
+                $techName = 'Rust';
+                $techFramework = 'Cargo';
+                $techRuntime = 'Rust';
+                $techEvidence = 'Cargo.toml';
+                break;
+            } elseif ($base === 'go.mod') {
+                $techName = 'Go';
+                $techFramework = 'Go Modules';
+                $techRuntime = 'Go';
+                $techEvidence = 'go.mod';
+                break;
+            } elseif ($base === 'manage.py') {
+                $techName = 'Django';
+                $techFramework = 'Django';
+                $techRuntime = 'Python';
+                $techEvidence = 'manage.py';
+                break;
+            } elseif ($base === 'requirements.txt' || $base === 'pyproject.toml') {
+                $techName = 'Python';
+                $techFramework = 'Python';
+                $techRuntime = 'Python';
+                $techEvidence = $base;
+            }
+        }
+    }
+
+    if ($techName === 'HTML5 / JS') {
+        $hasPhp = false;
+        foreach ($filePaths as $path) {
+            if (preg_match('/\.php$/i', $path)) {
+                $hasPhp = true;
+                break;
+            }
+        }
+        if ($hasPhp) {
+            $techName = 'Native PHP';
+            $techFramework = 'PHP';
+            $techRuntime = 'PHP';
+            $techEvidence = 'PHP scripts';
+        }
+    }
+
+    $inspectionResult = [
+        'repo' => $repoName,
+        'pushed_at' => $pushedAt,
+        'inspected_at' => date('c'),
+        'cached' => false,
+        'database' => [
+            'detected' => $dbDetected,
+            'type' => $dbType,
+            'evidence' => $dbEvidence,
+        ],
+        'auth' => [
+            'detected' => $authDetected,
+            'evidence' => $authEvidence,
+        ],
+        'tech_stack' => [
+            'name' => $techName,
+            'framework' => $techFramework,
+            'runtime' => $techRuntime,
+            'evidence' => $techEvidence,
+        ],
+    ];
+
+    @file_put_contents($cacheFile, json_encode($inspectionResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+    return $inspectionResult;
+}
+
 // 1. Fetch authenticated user profile
 $userRes = makeGitHubRequest('/user', $token, $config);
 
@@ -225,6 +642,32 @@ $userProfile = [
     'owned_private_repos' => $userData['owned_private_repos'] ?? 0,
 ];
 
+// If action is repository inspection
+if ($action === 'inspect') {
+    $repoName = trim($_GET['repo'] ?? '');
+    if (empty($repoName)) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Missing "repo" parameter for inspection.',
+            'code' => 'PARAM_MISSING'
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    $owner = trim($_GET['owner'] ?? '') ?: ($userProfile['login'] ?? '');
+    $branch = trim($_GET['branch'] ?? 'main');
+    $pushedAt = trim($_GET['pushed_at'] ?? '');
+
+    $inspection = inspectRepository($owner, $repoName, $branch, $pushedAt, $token, $config, $forceRefresh);
+    echo json_encode([
+        'success' => true,
+        'inspection' => $inspection,
+        'rate_limit' => parseRateLimits($userRes['headers'] ?? []),
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 // 2. Fetch all repositories with complete pagination (no truncation)
 $perPage = min(100, max(1, (int)($config['per_page'] ?? 100)));
 $affiliation = $config['affiliation'] ?? 'owner';
@@ -270,6 +713,21 @@ while ($page <= $maxPages) {
     }
 
     foreach ($pageRepos as $repo) {
+        $inspectionsDir = __DIR__ . '/cache/inspections';
+        $cleanRepoName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $repo['name']);
+        $inspectFile = $inspectionsDir . '/' . $cleanRepoName . '.json';
+        $inspectionData = null;
+        if (file_exists($inspectFile)) {
+            $rawInspect = @file_get_contents($inspectFile);
+            $decodedInspect = json_decode($rawInspect, true);
+            if (is_array($decodedInspect) && isset($decodedInspect['database'])) {
+                if (empty($repo['pushed_at']) || empty($decodedInspect['pushed_at']) || $decodedInspect['pushed_at'] === $repo['pushed_at']) {
+                    $decodedInspect['cached'] = true;
+                    $inspectionData = $decodedInspect;
+                }
+            }
+        }
+
         // Build clean and consistent repository entity
         $allRepositories[] = [
             'id' => $repo['id'],
@@ -295,6 +753,7 @@ while ($page <= $maxPages) {
             'disabled' => (bool)($repo['disabled'] ?? false),
             'is_template' => (bool)($repo['is_template'] ?? false),
             'topics' => $repo['topics'] ?? [],
+            'inspection' => $inspectionData,
             'license' => isset($repo['license']) && is_array($repo['license']) ? [
                 'key' => $repo['license']['key'] ?? '',
                 'name' => $repo['license']['name'] ?? '',

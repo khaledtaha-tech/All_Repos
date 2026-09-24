@@ -79,7 +79,7 @@
 
     <!-- Top Navigation Bar -->
     <header class="bg-[#161b22] border-b border-[#30363d] sticky top-0 z-30 shadow-md">
-        <div class="w-full max-w-[98%] 2xl:max-w-[96%] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+        <div class="w-full max-w-[99%] mx-auto px-3 sm:px-4 lg:px-6 h-16 flex items-center justify-between gap-4">
             
             <!-- Branding -->
             <div class="flex items-center gap-3">
@@ -140,7 +140,7 @@
     </header>
 
     <!-- Main Container -->
-    <main class="flex-1 w-full max-w-[98%] 2xl:max-w-[96%] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <main class="flex-1 w-full max-w-[99%] mx-auto px-3 sm:px-4 lg:px-6 py-6 space-y-6">
 
         <!-- Error Banner (Hidden by default) -->
         <div id="errorBanner" class="hidden bg-[#3d1a1f] border border-[#f85149] rounded-xl p-5 shadow-lg">
@@ -478,7 +478,7 @@
 
     <!-- Footer -->
     <footer class="bg-[#161b22] border-t border-[#30363d] py-6 mt-12 text-center text-xs text-[#8b949e]">
-        <div class="w-full max-w-[98%] 2xl:max-w-[96%] mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div class="w-full max-w-[99%] mx-auto px-3 sm:px-4 lg:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p>
                 <strong>All Repos</strong> &mdash; GitHub Repositories Manager & Explorer. Built with PHP, HTML5, Vanilla JavaScript, and Tailwind CSS.
             </p>

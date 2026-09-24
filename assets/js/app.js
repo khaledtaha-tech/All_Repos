@@ -25,7 +25,212 @@
         viewMode: localStorage.getItem('all_repos_view_mode') || 'list', // 'list' (default) or 'grid'
         lastUpdated: null,
         selectedRepo: null,
+        inspections: {},
+        inspectingRepos: new Set(),
     };
+
+    // Automated Architecture Detection Persistence Key
+    const INSPECTIONS_STORAGE_KEY = 'all_repos_inspections_v2';
+
+    /**
+     * Get cached repository inspections from localStorage
+     */
+    function getCachedInspections() {
+        try {
+            const raw = localStorage.getItem(INSPECTIONS_STORAGE_KEY);
+            return raw ? JSON.parse(raw) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    /**
+     * Persist cached repository inspections to localStorage
+     */
+    function saveCachedInspections() {
+        try {
+            localStorage.setItem(INSPECTIONS_STORAGE_KEY, JSON.stringify(state.inspections));
+        } catch (e) {
+            console.error('Failed to save inspections cache:', e);
+        }
+    }
+
+    const inspectionQueue = [];
+    let activeInspectionsCount = 0;
+    const MAX_CONCURRENT_INSPECTIONS = 3;
+
+    /**
+     * Queue a repository for architecture inspection
+     */
+    function queueRepoInspection(repo) {
+        if (!repo || !repo.name) return;
+        const existing = state.inspections[repo.name];
+        if (existing && (!repo.pushed_at || !existing.pushed_at || existing.pushed_at === repo.pushed_at)) {
+            return; // Already inspected and up to date
+        }
+        if (state.inspectingRepos.has(repo.name)) {
+            return; // In flight
+        }
+        if (!inspectionQueue.some(r => r.name === repo.name)) {
+            inspectionQueue.push(repo);
+        }
+        processInspectionQueue();
+    }
+
+    /**
+     * Process background inspection queue with controlled concurrency
+     */
+    async function processInspectionQueue() {
+        if (activeInspectionsCount >= MAX_CONCURRENT_INSPECTIONS || inspectionQueue.length === 0) {
+            return;
+        }
+
+        const repo = inspectionQueue.shift();
+        if (!repo) return;
+
+        state.inspectingRepos.add(repo.name);
+        activeInspectionsCount++;
+
+        // Update UI to show scanning state
+        updateRepoInspectionUI(repo.name);
+
+        try {
+            const branch = repo.default_branch || 'main';
+            const pushedAt = repo.pushed_at || '';
+            const url = `api.php?action=inspect&repo=${encodeURIComponent(repo.name)}&branch=${encodeURIComponent(branch)}&pushed_at=${encodeURIComponent(pushedAt)}`;
+
+            const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+            const data = await res.json();
+
+            if (data.success && data.inspection) {
+                state.inspections[repo.name] = data.inspection;
+                saveCachedInspections();
+            }
+        } catch (e) {
+            console.warn(`Failed to inspect repository "${repo.name}":`, e);
+        } finally {
+            state.inspectingRepos.delete(repo.name);
+            activeInspectionsCount--;
+            updateRepoInspectionUI(repo.name);
+            processInspectionQueue();
+        }
+    }
+
+    /**
+     * Update inspection badges in DOM dynamically for a specific repository
+     */
+    function updateRepoInspectionUI(repoName) {
+        const repo = state.repositories.find(r => r.name === repoName);
+        if (!repo) return;
+
+        const techCells = document.querySelectorAll(`td[data-cell-tech="${CSS.escape(repoName)}"]`);
+        techCells.forEach(cell => { cell.innerHTML = renderTechStackCell(repo); });
+
+        const dbCells = document.querySelectorAll(`td[data-cell-db="${CSS.escape(repoName)}"]`);
+        dbCells.forEach(cell => { cell.innerHTML = renderDatabaseCell(repo); });
+
+        const authCells = document.querySelectorAll(`td[data-cell-auth="${CSS.escape(repoName)}"]`);
+        authCells.forEach(cell => { cell.innerHTML = renderAuthCell(repo); });
+
+        const cardTechs = document.querySelectorAll(`div[data-card-tech="${CSS.escape(repoName)}"]`);
+        cardTechs.forEach(el => { el.innerHTML = renderTechStackCell(repo); });
+
+        const cardDbs = document.querySelectorAll(`div[data-card-db="${CSS.escape(repoName)}"]`);
+        cardDbs.forEach(el => { el.innerHTML = renderDatabaseCell(repo); });
+
+        const cardAuths = document.querySelectorAll(`div[data-card-auth="${CSS.escape(repoName)}"]`);
+        cardAuths.forEach(el => { el.innerHTML = renderAuthCell(repo); });
+    }
+
+    /**
+     * Render Tech Stack badge
+     */
+    function renderTechStackCell(repo) {
+        const inspection = state.inspections[repo.name] || repo.inspection;
+        const isScanning = state.inspectingRepos.has(repo.name);
+
+        if (isScanning && !inspection) {
+            return `
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono text-[#8b949e] bg-[#161b22] border border-[#30363d] animate-pulse">
+                    <svg class="w-3 h-3 animate-spin text-[#58a6ff]" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span>Scanning</span>
+                </span>
+            `;
+        }
+
+        if (inspection && inspection.tech_stack && inspection.tech_stack.name && inspection.tech_stack.name !== 'None') {
+            const name = inspection.tech_stack.name;
+            const evidence = inspection.tech_stack.evidence || name;
+            return `
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#1f2937] text-[#79c0ff] border border-[#388bfd]/30 shadow-sm" title="Tech Stack: ${escapeHtml(evidence)}">
+                    <svg class="w-3 h-3 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                    <span>${escapeHtml(name)}</span>
+                </span>
+            `;
+        }
+
+        const fallback = repo.language || '—';
+        return `<span class="text-[#8b949e]/60 font-mono text-xs select-none pl-1" title="Language fallback">${escapeHtml(fallback)}</span>`;
+    }
+
+    /**
+     * Render Database badge (Green badge or muted No)
+     */
+    function renderDatabaseCell(repo) {
+        const inspection = state.inspections[repo.name] || repo.inspection;
+        const isScanning = state.inspectingRepos.has(repo.name);
+
+        if (isScanning && !inspection) {
+            return `
+                <span class="inline-flex items-center gap-1 text-[11px] text-[#8b949e] animate-pulse">
+                    <svg class="w-3 h-3 animate-spin text-[#3fb950]" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span>...</span>
+                </span>
+            `;
+        }
+
+        if (inspection && inspection.database && inspection.database.detected) {
+            const dbType = inspection.database.type || 'Yes';
+            const evidence = inspection.database.evidence || dbType;
+            return `
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#238636]/20 text-[#3fb950] border border-[#238636]/40 shadow-sm" title="Database detected: ${escapeHtml(evidence)}">
+                    <svg class="w-3 h-3 text-[#3fb950]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+                    <span>${escapeHtml(dbType)}</span>
+                </span>
+            `;
+        }
+
+        return `<span class="text-[#8b949e]/40 font-mono text-xs select-none pl-1">No</span>`;
+    }
+
+    /**
+     * Render Login / Auth badge (Green Yes or muted No)
+     */
+    function renderAuthCell(repo) {
+        const inspection = state.inspections[repo.name] || repo.inspection;
+        const isScanning = state.inspectingRepos.has(repo.name);
+
+        if (isScanning && !inspection) {
+            return `
+                <span class="inline-flex items-center gap-1 text-[11px] text-[#8b949e] animate-pulse">
+                    <svg class="w-3 h-3 animate-spin text-[#3fb950]" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span>...</span>
+                </span>
+            `;
+        }
+
+        if (inspection && inspection.auth && inspection.auth.detected) {
+            const evidence = inspection.auth.evidence || 'Detected';
+            return `
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#238636]/20 text-[#3fb950] border border-[#238636]/40 shadow-sm" title="Auth detected: ${escapeHtml(evidence)}">
+                    <svg class="w-3.5 h-3.5 text-[#3fb950]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                    <span>Yes</span>
+                </span>
+            `;
+        }
+
+        return `<span class="text-[#8b949e]/40 font-mono text-xs select-none pl-1">No</span>`;
+    }
 
     // AI Dev / Assistant Predefined Choices
     const AI_TOOLS_STORAGE_KEY = 'all_repos_ai_tools';
@@ -685,6 +890,22 @@
             state.rateLimit = data.rate_limit || null;
             state.lastUpdated = data.cached_at || new Date().toISOString();
 
+            // Synchronize inspections from local cache & API responses
+            const localInspections = getCachedInspections();
+            state.inspections = { ...localInspections };
+
+            state.repositories.forEach(repo => {
+                if (repo.inspection) {
+                    state.inspections[repo.name] = repo.inspection;
+                }
+            });
+            saveCachedInspections();
+
+            // Queue background architecture inspection for uninspected repositories
+            state.repositories.forEach(repo => {
+                queueRepoInspection(repo);
+            });
+
             populateLanguageOptions();
             applyFiltersAndSort();
             renderHeaderAndStats();
@@ -837,7 +1058,12 @@
                 const topics = (repo.topics || []).join(' ').toLowerCase();
                 const aiTool = (getRepoAiTool(repo) || '').toLowerCase();
                 const promptTool = (getRepoPromptTool(repo) || '').toLowerCase();
-                return name.includes(q) || desc.includes(q) || lang.includes(q) || topics.includes(q) || aiTool.includes(q) || promptTool.includes(q);
+                const inspection = state.inspections[repo.name] || repo.inspection;
+                const techStack = (inspection && inspection.tech_stack && inspection.tech_stack.name ? inspection.tech_stack.name : '').toLowerCase();
+                const dbInfo = (inspection && inspection.database && inspection.database.detected ? (inspection.database.type + ' ' + (inspection.database.evidence || '')) : '').toLowerCase();
+                const authInfo = (inspection && inspection.auth && inspection.auth.detected ? ('auth login authentication ' + (inspection.auth.evidence || '')) : '').toLowerCase();
+
+                return name.includes(q) || desc.includes(q) || lang.includes(q) || topics.includes(q) || aiTool.includes(q) || promptTool.includes(q) || techStack.includes(q) || dbInfo.includes(q) || authInfo.includes(q);
             });
         }
 
@@ -1030,6 +1256,27 @@
                         </div>
                     </div>
 
+                    <!-- Architecture Detection: Tech Stack, Database, Login / Auth -->
+                    <div class="p-2.5 bg-[#0d1117] rounded-lg border border-[#21262d] space-y-2 text-xs" data-card-arch="${escapeHtml(repo.name)}">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[#8b949e] font-medium flex items-center gap-1.5">
+                                <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                                <span>Tech Stack:</span>
+                            </span>
+                            <div data-card-tech="${escapeHtml(repo.name)}">${renderTechStackCell(repo)}</div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 pt-1.5 border-t border-[#21262d]">
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[#8b949e] font-medium">DB:</span>
+                                <div data-card-db="${escapeHtml(repo.name)}">${renderDatabaseCell(repo)}</div>
+                            </div>
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[#8b949e] font-medium">Auth:</span>
+                                <div data-card-auth="${escapeHtml(repo.name)}">${renderAuthCell(repo)}</div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- AI Dev & Prompt Explainer Selectors in Card -->
                     <div class="space-y-2 pt-1">
                         <div class="flex items-center justify-between text-xs">
@@ -1182,6 +1429,21 @@
                     ${liveAppBadge}
                 </td>
 
+                <!-- Tech Stack Column -->
+                <td class="py-3 px-4 whitespace-nowrap" data-cell-tech="${escapeHtml(repo.name)}">
+                    ${renderTechStackCell(repo)}
+                </td>
+
+                <!-- Database Column -->
+                <td class="py-3 px-4 whitespace-nowrap" data-cell-db="${escapeHtml(repo.name)}">
+                    ${renderDatabaseCell(repo)}
+                </td>
+
+                <!-- Login / Auth Column -->
+                <td class="py-3 px-4 whitespace-nowrap" data-cell-auth="${escapeHtml(repo.name)}">
+                    ${renderAuthCell(repo)}
+                </td>
+
                 <!-- AI Dev / Tool Column -->
                 <td class="py-3 px-4 whitespace-nowrap">
                     ${buildAiSelectHtml(repo)}
@@ -1235,12 +1497,15 @@
 
         elements.repoList.innerHTML = `
         <div class="overflow-x-auto border border-[#30363d] rounded-xl bg-[#0d1117] shadow-sm">
-            <table class="w-full text-left border-collapse">
+            <table class="w-full text-left border-collapse min-w-[1450px]">
                 <thead>
                     <tr class="bg-[#161b22] border-b border-[#30363d] text-xs font-semibold text-[#8b949e]">
                         <th class="py-3 px-4">Repository</th>
                         <th class="py-3 px-4">Language</th>
                         <th class="py-3 px-4">Live App</th>
+                        <th class="py-3 px-4">Tech Stack</th>
+                        <th class="py-3 px-4">Database</th>
+                        <th class="py-3 px-4">Login / Auth</th>
                         <th class="py-3 px-4">AI Dev / Tool</th>
                         <th class="py-3 px-4">Prompt / Explainer</th>
                         <th class="py-3 px-4">Updated</th>
@@ -1371,6 +1636,25 @@
                         <span class="text-xs text-[#8b949e] block">Created On:</span>
                         <strong class="text-sm text-[#d2a8ff] block mt-0.5">${formatRelativeTime(repo.created_at)}</strong>
                         <span class="text-[11px] text-[#6e7681] block mt-1 font-mono">${formatExactDateTime(repo.created_at)}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Architecture Detection: Tech Stack, Database, Login / Auth -->
+            <div class="py-4 border-b border-[#30363d]">
+                <h4 class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-2">Architecture & Feature Detection</h4>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div class="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] flex items-center justify-between">
+                        <span class="text-xs text-[#8b949e] font-medium">Tech Stack:</span>
+                        <div>${renderTechStackCell(repo)}</div>
+                    </div>
+                    <div class="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] flex items-center justify-between">
+                        <span class="text-xs text-[#8b949e] font-medium">Database:</span>
+                        <div>${renderDatabaseCell(repo)}</div>
+                    </div>
+                    <div class="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] flex items-center justify-between">
+                        <span class="text-xs text-[#8b949e] font-medium">Login / Auth:</span>
+                        <div>${renderAuthCell(repo)}</div>
                     </div>
                 </div>
             </div>
