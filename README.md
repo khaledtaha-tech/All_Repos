@@ -28,16 +28,16 @@ Target Repository: [https://github.com/khaledtaha-tech/All_Repos](https://github
   - Repository Name (A &rarr; Z and Z &rarr; A)
   - Most Stars & Largest Disk Size
 
-### 3. Clipboard Utilities & Live Deployment Links
+### 3. Clipboard Utilities, Live Deployment Links & AI Tool Tracking
+- **AI Dev / Assistant Tracking**: Interactive "AI Dev / Tool" dropdown column tagging repositories with the AI tools used in their development (`AntiGravity`, `ChatGPT`, `Cursor`, `Claude`, `Other`, or `Unassigned / None`). Selections are permanently stored and preserved across sessions via browser `localStorage`.
+- **Dedicated "Live App" Column**: Automatically verifies the `homepage` URL from GitHub API data; renders active, clickable "Visit App ↗" badges for immediate navigation to deployed applications, or a clean muted dash when unassigned.
+- **Clean "Repo Link" Actions**: Streamlined action buttons linking directly to the repository on GitHub in a new tab with an integrated one-click URL copy icon.
 - **Dedicated Repo Name Copy**: An obvious, dedicated "Copy Name" button directly beside each repository title in both Table and Grid views, triggering an instant confirmation toast (`Copied: <name>`).
-- **Live Website / Deployment Links**: Automatically extracts the `homepage` URL from GitHub API data; renders clickable "Live Site" buttons for instant navigation to deployed applications.
-- **Single-Click Clone URLs**: Dedicated buttons on every repository card to instantly copy **HTTPS** (`https://github.com/...git`) or **SSH** (`git@github.com:...git`) clone URLs.
-- **"Copy All Visible Names"**: Instantly copies a newline-separated list of all repository names currently visible under the active search query and filter criteria.
-- **Batch Clone Exporters**: Export all visible HTTPS or SSH clone URLs in a single action.
+- **"Copy All Visible Names & URLs"**: Instantly copy a newline-separated list of all repository names or GitHub URLs currently visible under the active search query and filter criteria.
 - **Toast Notifications**: Non-intrusive floating feedback confirms every successful copy operation.
 
 ### 4. Live Search & Visibility Filtering
-- **Real-Time Instant Search**: Filter by repository name, description, primary language, or topic tags with instant feedback.
+- **Real-Time Instant Search**: Filter by repository name, description, primary language, topic tags, or assigned AI tool with instant feedback.
 - **Visibility Toggle**: Filter between **All**, **Public**, **Private**, **Sources Only**, and **Forks**.
 - **Dynamic Language Filter**: Automatically discovers and aggregates all languages present across your repositories, showing counts for each.
 - **View Modes**: Switch between responsive Grid Cards and a compact Table List view.

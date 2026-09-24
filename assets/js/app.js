@@ -22,10 +22,137 @@
         visibilityFilter: 'all', // 'all', 'public', 'private', 'sources', 'forks'
         languageFilter: 'all',
         sortBy: 'updated_desc', // 'updated_desc', 'updated_asc', 'pushed_desc', 'pushed_asc', 'name_asc', 'name_desc', 'stars_desc', 'size_desc'
-        viewMode: 'grid', // 'grid' or 'list'
+        viewMode: localStorage.getItem('all_repos_view_mode') || 'list', // 'list' (default) or 'grid'
         lastUpdated: null,
         selectedRepo: null,
     };
+
+    // AI Dev / Assistant Predefined Choices
+    const AI_TOOLS_STORAGE_KEY = 'all_repos_ai_tools';
+    const AI_TOOL_CHOICES = [
+        { value: 'none', label: 'Unassigned / None' },
+        { value: 'AntiGravity', label: 'AntiGravity' },
+        { value: 'ChatGPT', label: 'ChatGPT' },
+        { value: 'Cursor', label: 'Cursor' },
+        { value: 'Claude', label: 'Claude' },
+        { value: 'Other', label: 'Other' },
+    ];
+
+    /**
+     * Clean and validate a live website URL from repo.homepage
+     */
+    function formatLiveUrl(url) {
+        if (!url || typeof url !== 'string') return null;
+        const trimmed = url.trim();
+        if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return null;
+        if (/^https?:\/\//i.test(trimmed)) {
+            return trimmed;
+        }
+        if (/^[a-zA-Z0-9][-a-zA-Z0-9]*(\.[a-zA-Z0-9]+)+/i.test(trimmed)) {
+            return 'https://' + trimmed;
+        }
+        return null;
+    }
+
+    /**
+     * Get stored AI Tools dictionary from localStorage
+     */
+    function getAiToolsMap() {
+        try {
+            const stored = localStorage.getItem(AI_TOOLS_STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    /**
+     * Retrieve AI tool assigned to a given repository (by name or ID)
+     */
+    function getRepoAiTool(repo) {
+        if (!repo) return 'none';
+        const map = getAiToolsMap();
+        return map[repo.name] || (repo.id ? map[String(repo.id)] : null) || 'none';
+    }
+
+    /**
+     * Update AI tool assigned to a repository and persist to localStorage
+     */
+    function setRepoAiTool(repoName, toolValue, repoId) {
+        try {
+            const map = getAiToolsMap();
+            if (toolValue === 'none') {
+                delete map[repoName];
+                if (repoId) delete map[String(repoId)];
+            } else {
+                map[repoName] = toolValue;
+                if (repoId) map[String(repoId)] = toolValue;
+            }
+            localStorage.setItem(AI_TOOLS_STORAGE_KEY, JSON.stringify(map));
+
+            const choice = AI_TOOL_CHOICES.find(c => c.value === toolValue);
+            const label = choice ? choice.label : toolValue;
+            showToast(`AI Tool for "${repoName}" updated to ${label}`, 'success');
+
+            // Sync all matching select elements across views without interrupting user
+            const selects = document.querySelectorAll(`select[data-repo-name="${CSS.escape(repoName)}"]`);
+            selects.forEach(sel => {
+                sel.value = toolValue;
+                updateAiSelectStyle(sel, toolValue);
+            });
+        } catch (e) {
+            console.error('Failed to save AI tool to localStorage:', e);
+            showToast('Failed to save AI tool selection.', 'error');
+        }
+    }
+
+    /**
+     * Update Tailwind styling on AI Select element dynamically based on selection
+     */
+    function updateAiSelectStyle(selectEl, toolValue) {
+        if (!selectEl) return;
+        if (toolValue === 'AntiGravity') {
+            selectEl.className = 'bg-[#161b22] text-[#a371f7] border border-[#a371f7]/50 focus:border-[#a371f7] focus:ring-1 focus:ring-[#a371f7] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (toolValue === 'ChatGPT') {
+            selectEl.className = 'bg-[#161b22] text-[#3fb950] border border-[#3fb950]/50 focus:border-[#3fb950] focus:ring-1 focus:ring-[#3fb950] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (toolValue === 'Cursor') {
+            selectEl.className = 'bg-[#161b22] text-[#58a6ff] border border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (toolValue === 'Claude') {
+            selectEl.className = 'bg-[#161b22] text-[#d29922] border border-[#d29922]/50 focus:border-[#d29922] focus:ring-1 focus:ring-[#d29922] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (toolValue === 'Other') {
+            selectEl.className = 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d] focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else {
+            selectEl.className = 'bg-[#0d1117] text-[#8b949e] border border-[#30363d] hover:border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        }
+    }
+
+    /**
+     * Build HTML markup for AI Tool dropdown selector
+     */
+    function buildAiSelectHtml(repo) {
+        const current = getRepoAiTool(repo);
+        const repoNameEsc = escapeHtml(repo.name);
+        const repoId = repo.id || 0;
+
+        let styleClasses = 'bg-[#0d1117] text-[#8b949e] border border-[#30363d] hover:border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        if (current === 'AntiGravity') styleClasses = 'bg-[#161b22] text-[#a371f7] border border-[#a371f7]/50 focus:border-[#a371f7] focus:ring-1 focus:ring-[#a371f7] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'ChatGPT') styleClasses = 'bg-[#161b22] text-[#3fb950] border border-[#3fb950]/50 focus:border-[#3fb950] focus:ring-1 focus:ring-[#3fb950] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'Cursor') styleClasses = 'bg-[#161b22] text-[#58a6ff] border border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'Claude') styleClasses = 'bg-[#161b22] text-[#d29922] border border-[#d29922]/50 focus:border-[#d29922] focus:ring-1 focus:ring-[#d29922] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'Other') styleClasses = 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d] focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+
+        return `
+            <select data-repo-name="${repoNameEsc}" 
+                    onchange="window.setRepoAiTool('${repoNameEsc}', this.value, ${repoId})" 
+                    class="${styleClasses}">
+                ${AI_TOOL_CHOICES.map(c => `
+                    <option value="${c.value}" class="bg-[#161b22] text-[#e6edf3]" ${current === c.value ? 'selected' : ''}>
+                        ${escapeHtml(c.label)}
+                    </option>
+                `).join('')}
+            </select>
+        `;
+    }
 
     // Language color mapping for common programming languages
     const languageColors = {
@@ -425,7 +552,8 @@
                 const desc = (repo.description || '').toLowerCase();
                 const lang = (repo.language || '').toLowerCase();
                 const topics = (repo.topics || []).join(' ').toLowerCase();
-                return name.includes(q) || desc.includes(q) || lang.includes(q) || topics.includes(q);
+                const aiTool = (getRepoAiTool(repo) || '').toLowerCase();
+                return name.includes(q) || desc.includes(q) || lang.includes(q) || topics.includes(q) || aiTool.includes(q);
             });
         }
 
@@ -550,12 +678,13 @@
                    </span>`
                 : '';
 
-            const liveSiteBadge = repo.homepage
-                ? `<a href="${escapeHtml(repo.homepage)}" target="_blank" rel="noopener noreferrer" 
+            const liveUrl = formatLiveUrl(repo.homepage);
+            const liveSiteBadge = liveUrl
+                ? `<a href="${escapeHtml(liveUrl)}" target="_blank" rel="noopener noreferrer" 
                       class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/50 transition shadow-sm"
-                      title="Open live website: ${escapeHtml(repo.homepage)}">
+                      title="Open live website: ${escapeHtml(liveUrl)}">
                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                     <span>Live Site</span>
+                     <span>Live App</span>
                    </a>`
                 : '';
 
@@ -617,6 +746,15 @@
                         </div>
                     </div>
 
+                    <!-- AI Dev / Tool Selector in Card -->
+                    <div class="flex items-center justify-between text-xs pt-1">
+                        <span class="text-[#8b949e] font-medium flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                            <span>AI Dev / Tool:</span>
+                        </span>
+                        ${buildAiSelectHtml(repo)}
+                    </div>
+
                     <!-- Language and Metadata Indicators -->
                     <div class="flex items-center justify-between text-xs text-[#8b949e]">
                         <div class="flex items-center gap-1.5">
@@ -638,36 +776,36 @@
                         </div>
                     </div>
 
-                    <!-- Card Bottom Actions: Clone URLs & Details -->
+                    <!-- Card Bottom Actions: Clean Repo Link, Live App & Details -->
                     <div class="flex items-center justify-between gap-1.5 pt-1">
-                        <!-- Single click HTTPS Clone -->
-                        <button onclick="window.copyHttpsClone('${escapeHtml(repo.clone_url)}', '${escapeHtml(repo.name)}')" 
-                                class="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white border border-[#30363d] transition active:scale-95"
-                                title="Copy HTTPS Clone URL: ${escapeHtml(repo.clone_url)}">
-                            <svg class="w-3 h-3 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                            <span>HTTPS</span>
-                        </button>
+                        <!-- Clean Repo Link with quick-copy -->
+                        <div class="flex-1 inline-flex items-center rounded-md bg-[#21262d] border border-[#30363d] overflow-hidden shadow-sm hover:border-[#58a6ff]/40 transition">
+                            <a href="${escapeHtml(repo.html_url)}" target="_blank" rel="noopener noreferrer" 
+                               class="flex-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-[#c9d1d9] hover:text-white hover:bg-[#30363d] transition" 
+                               title="Open repository on GitHub">
+                                <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 16 16"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+                                <span>Repo Link</span>
+                            </a>
+                            <button onclick="window.copyToClip('${escapeHtml(repo.html_url)}', 'GitHub repository URL')" 
+                                    class="px-2 py-1.5 text-[#8b949e] hover:text-[#58a6ff] hover:bg-[#30363d] border-l border-[#30363d] transition active:scale-95" 
+                                    title="Copy GitHub URL">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                            </button>
+                        </div>
 
-                        <!-- Single click SSH Clone -->
-                        <button onclick="window.copySshClone('${escapeHtml(repo.ssh_url)}', '${escapeHtml(repo.name)}')" 
-                                class="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white border border-[#30363d] transition active:scale-95"
-                                title="Copy SSH Clone URL: ${escapeHtml(repo.ssh_url)}">
-                            <svg class="w-3 h-3 text-[#a371f7]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
-                            <span>SSH</span>
-                        </button>
-
-                        <!-- Live site action icon if available -->
-                        ${repo.homepage ? `
-                            <a href="${escapeHtml(repo.homepage)}" target="_blank" rel="noopener noreferrer" 
-                               class="p-1.5 rounded-md text-[#3fb950] hover:text-white hover:bg-[#238636] border border-[#238636]/50 transition active:scale-95 flex items-center justify-center"
-                               title="Open live website: ${escapeHtml(repo.homepage)}">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                        <!-- Live App button if available -->
+                        ${liveUrl ? `
+                            <a href="${escapeHtml(liveUrl)}" target="_blank" rel="noopener noreferrer" 
+                               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/50 transition active:scale-95" 
+                               title="Visit App: ${escapeHtml(liveUrl)}">
+                                <span>Visit App</span>
+                                <span class="text-[11px] leading-none">&nearr;</span>
                             </a>
                         ` : ''}
 
                         <!-- Inspect Details Modal Trigger -->
                         <button onclick="window.openRepoModal(${repo.id})" 
-                                class="p-1.5 rounded-md text-[#8b949e] hover:text-white hover:bg-[#21262d] border border-[#30363d] transition active:scale-95"
+                                class="p-1.5 rounded-md text-[#8b949e] hover:text-white hover:bg-[#21262d] border border-[#30363d] transition active:scale-95" 
                                 title="View repository details & quick commands">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         </button>
@@ -695,6 +833,16 @@
                 ? `<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-[#382352] text-[#d2a8ff] border border-[#a371f7]/40">Private</span>`
                 : `<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-[#1b2533] text-[#79c0ff] border border-[#388bfd]/30">Public</span>`;
 
+            const liveUrl = formatLiveUrl(repo.homepage);
+            const liveAppBadge = liveUrl 
+                ? `<a href="${escapeHtml(liveUrl)}" target="_blank" rel="noopener noreferrer" 
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/40 transition shadow-sm hover:scale-105 active:scale-95" 
+                      title="Visit App: ${escapeHtml(liveUrl)}">
+                     <span>Visit App</span>
+                     <svg class="w-3 h-3 text-[#3fb950]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                   </a>`
+                : `<span class="text-[#8b949e]/40 font-mono text-xs select-none pl-1">—</span>`;
+
             rowsHtml += `
             <tr class="border-b border-[#21262d] hover:bg-[#161b22]/70 transition-colors group ${isLatest ? 'bg-[#238636]/5' : ''}">
                 <!-- Name & Visibility & Direct Copy Name -->
@@ -708,7 +856,7 @@
                         <!-- Dedicated Obvious Copy Name Button -->
                         <button onclick="window.copyRepoName('${escapeHtml(repo.name)}')" 
                                 title="Copy exact repository name: ${escapeHtml(repo.name)}" 
-                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border border-[#30363d] hover:border-[#58a6ff] transition active:scale-95 shadow-sm"
+                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border border-[#30363d] hover:border-[#58a6ff] transition active:scale-95 shadow-sm" 
                                 aria-label="Copy repository name">
                             <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
                             <span>Copy</span>
@@ -722,14 +870,6 @@
                                 Latest Activity
                             </span>
                         ` : ''}
-                        ${repo.homepage ? `
-                            <a href="${escapeHtml(repo.homepage)}" target="_blank" rel="noopener noreferrer" 
-                               class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/50 transition shadow-sm"
-                               title="Open live website: ${escapeHtml(repo.homepage)}">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                                <span>Live Site</span>
-                            </a>
-                        ` : ''}
                     </div>
                     <div class="text-xs text-[#8b949e] truncate max-w-md mt-0.5">
                         ${escapeHtml(repo.description || 'No description')}
@@ -742,6 +882,16 @@
                         <span class="w-2 h-2 rounded-full inline-block" style="background-color: ${langColor};"></span>
                         <span class="text-[#c9d1d9]">${escapeHtml(lang)}</span>
                     </div>
+                </td>
+
+                <!-- Dedicated Live App Column -->
+                <td class="py-3 px-4 whitespace-nowrap">
+                    ${liveAppBadge}
+                </td>
+
+                <!-- AI Dev / Tool Column -->
+                <td class="py-3 px-4 whitespace-nowrap">
+                    ${buildAiSelectHtml(repo)}
                 </td>
 
                 <!-- Modification Chronology: Updated & Pushed (Relative + Exact on hover) -->
@@ -758,29 +908,25 @@
                     <span class="text-[#8b949e] ml-2">${formatRepoSize(repo.size)}</span>
                 </td>
 
-                <!-- Fast Copy & Live Actions -->
+                <!-- Clean Actions Column -->
                 <td class="py-3 px-4 text-right whitespace-nowrap">
-                    <div class="inline-flex items-center gap-1">
-                        <button onclick="window.copyHttpsClone('${escapeHtml(repo.clone_url)}', '${escapeHtml(repo.name)}')" 
-                                class="px-2 py-1 rounded text-xs bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] border border-[#30363d] transition active:scale-95" 
-                                title="Copy HTTPS Clone URL">
-                            HTTPS
-                        </button>
-                        <button onclick="window.copySshClone('${escapeHtml(repo.ssh_url)}', '${escapeHtml(repo.name)}')" 
-                                class="px-2 py-1 rounded text-xs bg-[#21262d] hover:bg-[#30363d] text-[#a371f7] border border-[#30363d] transition active:scale-95" 
-                                title="Copy SSH Clone URL">
-                            SSH
-                        </button>
-                        ${repo.homepage ? `
-                            <a href="${escapeHtml(repo.homepage)}" target="_blank" rel="noopener noreferrer" 
-                               class="px-2 py-1 rounded text-xs bg-[#238636]/20 hover:bg-[#238636]/40 text-[#3fb950] border border-[#238636]/50 transition" 
-                               title="Open live website: ${escapeHtml(repo.homepage)}">
-                                Live
+                    <div class="inline-flex items-center gap-1.5 justify-end">
+                        <div class="inline-flex items-center rounded-md bg-[#21262d] border border-[#30363d] overflow-hidden shadow-sm hover:border-[#58a6ff]/40 transition">
+                            <a href="${escapeHtml(repo.html_url)}" target="_blank" rel="noopener noreferrer" 
+                               class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-[#c9d1d9] hover:text-white hover:bg-[#30363d] transition" 
+                               title="Open repository on GitHub">
+                                <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 16 16"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+                                <span>Repo Link</span>
                             </a>
-                        ` : ''}
+                            <button onclick="window.copyToClip('${escapeHtml(repo.html_url)}', 'GitHub repository URL')" 
+                                    class="px-1.5 py-1 text-[#8b949e] hover:text-[#58a6ff] hover:bg-[#30363d] border-l border-[#30363d] transition active:scale-95" 
+                                    title="Copy GitHub URL">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                            </button>
+                        </div>
                         <button onclick="window.openRepoModal(${repo.id})" 
-                                class="p-1 rounded text-[#8b949e] hover:text-white hover:bg-[#21262d] transition"
-                                title="Details">
+                                class="p-1.5 rounded-md text-[#8b949e] hover:text-white hover:bg-[#21262d] border border-[#30363d] transition active:scale-95" 
+                                title="View repository details & quick commands">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         </button>
                     </div>
@@ -790,12 +936,14 @@
         });
 
         elements.repoList.innerHTML = `
-        <div class="overflow-x-auto border border-[#30363d] rounded-xl bg-[#0d1117]">
+        <div class="overflow-x-auto border border-[#30363d] rounded-xl bg-[#0d1117] shadow-sm">
             <table class="w-full text-left border-collapse">
                 <thead>
                     <tr class="bg-[#161b22] border-b border-[#30363d] text-xs font-semibold text-[#8b949e]">
                         <th class="py-3 px-4">Repository</th>
                         <th class="py-3 px-4">Language</th>
+                        <th class="py-3 px-4">Live App</th>
+                        <th class="py-3 px-4">AI Dev / Tool</th>
                         <th class="py-3 px-4">Updated</th>
                         <th class="py-3 px-4">Pushed</th>
                         <th class="py-3 px-4 text-right">Stars & Size</th>
@@ -859,6 +1007,7 @@
         state.selectedRepo = repo;
         const lang = repo.language || 'Unspecified';
         const langColor = languageColors[lang] || '#6e7681';
+        const liveUrl = formatLiveUrl(repo.homepage);
 
         elements.modalContent.innerHTML = `
             <div class="flex items-start justify-between gap-4 pb-4 border-b border-[#30363d]">
@@ -868,7 +1017,7 @@
                         <!-- Dedicated Obvious Copy Name Button in Modal -->
                         <button onclick="window.copyRepoName('${escapeHtml(repo.name)}')" 
                                 title="Copy exact repository name: ${escapeHtml(repo.name)}" 
-                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border border-[#30363d] hover:border-[#58a6ff] transition active:scale-95 shadow-sm"
+                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border border-[#30363d] hover:border-[#58a6ff] transition active:scale-95 shadow-sm" 
                                 aria-label="Copy repository name">
                             <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
                             <span>Copy Name</span>
@@ -881,12 +1030,12 @@
                     <p class="text-xs text-[#8b949e] mt-1 font-mono">${escapeHtml(repo.full_name)}</p>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap flex-shrink-0">
-                    ${repo.homepage ? `
-                        <a href="${escapeHtml(repo.homepage)}" target="_blank" rel="noopener noreferrer" 
-                           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#238636]/25 hover:bg-[#238636]/40 text-[#3fb950] border border-[#238636]/50 transition shadow-sm"
-                           title="Open live website: ${escapeHtml(repo.homepage)}">
-                            <span>Live Site</span>
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                    ${liveUrl ? `
+                        <a href="${escapeHtml(liveUrl)}" target="_blank" rel="noopener noreferrer" 
+                           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#238636]/25 hover:bg-[#238636]/40 text-[#3fb950] border border-[#238636]/50 transition shadow-sm" 
+                           title="Visit App: ${escapeHtml(liveUrl)}">
+                            <span>Visit App</span>
+                            <span class="text-[11px] leading-none">&nearr;</span>
                         </a>
                     ` : ''}
                     <a href="${escapeHtml(repo.html_url)}" target="_blank" rel="noopener noreferrer" 
@@ -959,13 +1108,17 @@
             </div>
 
             <!-- Repository Meta Details -->
-            <div class="pt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-[#8b949e]">
+            <div class="pt-4 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs text-[#8b949e]">
                 <div>
                     <span class="block">Language</span>
                     <strong class="text-white flex items-center gap-1.5 mt-0.5">
                         <span class="w-2 h-2 rounded-full inline-block" style="background-color: ${langColor};"></span>
                         ${escapeHtml(lang)}
                     </strong>
+                </div>
+                <div>
+                    <span class="block">AI Dev / Tool</span>
+                    <div class="mt-1">${buildAiSelectHtml(repo)}</div>
                 </div>
                 <div>
                     <span class="block">Default Branch</span>
@@ -993,6 +1146,19 @@
         elements.repoModal.classList.add('hidden');
         document.body.classList.remove('overflow-hidden');
         state.selectedRepo = null;
+    }
+
+    /**
+     * Batch Copy: Copy All Visible GitHub URLs
+     */
+    function copyAllVisibleRepoUrls() {
+        if (state.filteredRepositories.length === 0) {
+            showToast('No repositories match current filters to copy.', 'error');
+            return;
+        }
+
+        const urlsList = state.filteredRepositories.map(r => r.html_url).join('\n');
+        copyToClipboard(urlsList, `${state.filteredRepositories.length} GitHub repository URLs`);
     }
 
     /**
@@ -1048,9 +1214,23 @@
             applyFiltersAndSort();
         });
 
+        // Sync initial view mode button states
+        if (state.viewMode === 'list') {
+            elements.viewModeList.classList.add('bg-[#30363d]', 'text-white');
+            elements.viewModeList.classList.remove('text-[#8b949e]');
+            elements.viewModeGrid.classList.remove('bg-[#30363d]', 'text-white');
+            elements.viewModeGrid.classList.add('text-[#8b949e]');
+        } else {
+            elements.viewModeGrid.classList.add('bg-[#30363d]', 'text-white');
+            elements.viewModeGrid.classList.remove('text-[#8b949e]');
+            elements.viewModeList.classList.remove('bg-[#30363d]', 'text-white');
+            elements.viewModeList.classList.add('text-[#8b949e]');
+        }
+
         // View Mode Switchers
         elements.viewModeGrid.addEventListener('click', () => {
             state.viewMode = 'grid';
+            localStorage.setItem('all_repos_view_mode', 'grid');
             elements.viewModeGrid.classList.add('bg-[#30363d]', 'text-white');
             elements.viewModeGrid.classList.remove('text-[#8b949e]');
             elements.viewModeList.classList.remove('bg-[#30363d]', 'text-white');
@@ -1060,6 +1240,7 @@
 
         elements.viewModeList.addEventListener('click', () => {
             state.viewMode = 'list';
+            localStorage.setItem('all_repos_view_mode', 'list');
             elements.viewModeList.classList.add('bg-[#30363d]', 'text-white');
             elements.viewModeList.classList.remove('text-[#8b949e]');
             elements.viewModeGrid.classList.remove('bg-[#30363d]', 'text-white');
@@ -1142,6 +1323,14 @@
 
     window.copyToClip = function (text, desc) {
         copyToClipboard(text, desc);
+    };
+
+    window.setRepoAiTool = function (name, val, id) {
+        setRepoAiTool(name, val, id);
+    };
+
+    window.copyAllVisibleRepoLinks = function () {
+        copyAllVisibleRepoUrls();
     };
 
     window.openRepoModal = function (repoId) {
