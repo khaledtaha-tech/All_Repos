@@ -280,6 +280,7 @@ while ($page <= $maxPages) {
             'visibility' => $repo['visibility'] ?? ($repo['private'] ? 'private' : 'public'),
             'fork' => (bool)($repo['fork'] ?? false),
             'html_url' => $repo['html_url'],
+            'homepage' => !empty($repo['homepage']) ? trim($repo['homepage']) : null,
             'clone_url' => $repo['clone_url'], // HTTPS clone URL
             'ssh_url' => $repo['ssh_url'],     // SSH clone URL
             'default_branch' => $repo['default_branch'] ?? 'main',

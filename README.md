@@ -17,7 +17,8 @@ Target Repository: [https://github.com/khaledtaha-tech/All_Repos](https://github
 
 ### 2. Modification Chronology
 - **Dual Timestamps**: Displays both `updated_at` (metadata/settings updates) and `pushed_at` (latest code commit pushed).
-- **Human-Friendly Relative Times**: Intuitive relative time formatting (e.g., "3 hours ago", "yesterday", "2 weeks ago") with hover tooltips displaying the exact ISO 8601 UTC timestamp.
+- **Human-Friendly Relative Times**: Intuitive relative time formatting (e.g., "15m ago", "2h ago", "yesterday") with hover tooltips displaying the exact UTC timestamp (`YYYY-MM-DD HH:mm:ss UTC`).
+- **Activity Highlighting**: Prominent "Latest Activity" badge and card glow visually highlighting the most recently modified or pushed repository.
 - **Dynamic Chronological Sorting**:
   - Recently Updated (Newest first)
   - Least Recently Updated (Oldest first)
@@ -27,8 +28,9 @@ Target Repository: [https://github.com/khaledtaha-tech/All_Repos](https://github
   - Repository Name (A &rarr; Z and Z &rarr; A)
   - Most Stars & Largest Disk Size
 
-### 3. Clipboard Utilities
-- **Single-Click Repo Name**: Click the copy icon next to any repository title to copy its name to the clipboard.
+### 3. Clipboard Utilities & Live Deployment Links
+- **Dedicated Repo Name Copy**: An obvious, dedicated "Copy Name" button directly beside each repository title in both Table and Grid views, triggering an instant confirmation toast (`Copied: <name>`).
+- **Live Website / Deployment Links**: Automatically extracts the `homepage` URL from GitHub API data; renders clickable "Live Site" buttons for instant navigation to deployed applications.
 - **Single-Click Clone URLs**: Dedicated buttons on every repository card to instantly copy **HTTPS** (`https://github.com/...git`) or **SSH** (`git@github.com:...git`) clone URLs.
 - **"Copy All Visible Names"**: Instantly copies a newline-separated list of all repository names currently visible under the active search query and filter criteria.
 - **Batch Clone Exporters**: Export all visible HTTPS or SSH clone URLs in a single action.

@@ -94,13 +94,14 @@
     };
 
     /**
-     * Format ISO 8601 date string to human-readable relative time
+     * Format ISO 8601 date string to human-readable relative time (e.g., "15m ago", "2h ago", "yesterday")
      */
     function formatRelativeTime(dateString) {
         if (!dateString) return 'Never';
         const date = new Date(dateString);
         const now = new Date();
         const diffMs = now - date;
+        if (diffMs < 0) return 'just now';
         const diffSec = Math.floor(diffMs / 1000);
         const diffMin = Math.floor(diffSec / 60);
         const diffHour = Math.floor(diffMin / 60);
@@ -108,26 +109,56 @@
         const diffMonth = Math.floor(diffDay / 30);
         const diffYear = Math.floor(diffDay / 365);
 
-        if (diffSec < 60) return 'Just now';
-        if (diffMin === 1) return '1 minute ago';
-        if (diffMin < 60) return `${diffMin} minutes ago`;
-        if (diffHour === 1) return '1 hour ago';
-        if (diffHour < 24) return `${diffHour} hours ago`;
-        if (diffDay === 1) return 'Yesterday';
-        if (diffDay < 30) return `${diffDay} days ago`;
-        if (diffMonth === 1) return '1 month ago';
-        if (diffMonth < 12) return `${diffMonth} months ago`;
-        if (diffYear === 1) return '1 year ago';
-        return `${diffYear} years ago`;
+        if (diffSec < 60) return 'just now';
+        if (diffMin < 60) return `${diffMin}m ago`;
+        if (diffHour < 24) return `${diffHour}h ago`;
+        if (diffDay === 1) return 'yesterday';
+        if (diffDay < 30) return `${diffDay}d ago`;
+        if (diffMonth < 12) return `${diffMonth}mo ago`;
+        return `${diffYear}y ago`;
+    }
+
+    /**
+     * Format ISO 8601 date string to exact YYYY-MM-DD HH:mm:ss UTC
+     */
+    function formatExactDateTime(dateString) {
+        if (!dateString) return 'Not available';
+        const d = new Date(dateString);
+        if (isNaN(d.getTime())) return dateString;
+        const pad = (n) => String(n).padStart(2, '0');
+        const YYYY = d.getUTCFullYear();
+        const MM = pad(d.getUTCMonth() + 1);
+        const DD = pad(d.getUTCDate());
+        const HH = pad(d.getUTCHours());
+        const mm = pad(d.getUTCMinutes());
+        const ss = pad(d.getUTCSeconds());
+        return `${YYYY}-${MM}-${DD} ${HH}:${mm}:${ss} UTC`;
     }
 
     /**
      * Format ISO 8601 date string to full local and UTC readable string
      */
     function formatExactTime(dateString) {
-        if (!dateString) return 'Not available';
-        const date = new Date(dateString);
-        return date.toUTCString() + ' (' + date.toLocaleString() + ')';
+        return formatExactDateTime(dateString);
+    }
+
+    /**
+     * Find repository ID with the latest activity across the account
+     */
+    function getLatestActivityRepoId() {
+        if (!state.repositories || state.repositories.length === 0) return null;
+        let latestRepo = state.repositories[0];
+        let maxTime = 0;
+        state.repositories.forEach(repo => {
+            const pushTime = repo.pushed_at ? new Date(repo.pushed_at).getTime() : 0;
+            const updateTime = repo.updated_at ? new Date(repo.updated_at).getTime() : 0;
+            const recent = Math.max(pushTime, updateTime);
+            if (recent > maxTime) {
+                maxTime = recent;
+                latestRepo = repo;
+            }
+        });
+        return latestRepo ? latestRepo.id : null;
     }
 
     /**
@@ -158,7 +189,7 @@
     /**
      * Safe Clipboard Copy with Fallback
      */
-    async function copyToClipboard(text, description) {
+    async function copyToClipboard(text, description, customToast = null) {
         try {
             if (navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(text);
@@ -175,7 +206,7 @@
                 document.execCommand('copy');
                 document.body.removeChild(textArea);
             }
-            showToast(`Copied ${description} to clipboard!`, 'success');
+            showToast(customToast || `Copied ${description} to clipboard!`, 'success');
         } catch (err) {
             console.error('Failed to copy to clipboard: ', err);
             showToast(`Could not copy to clipboard. Please copy manually.`, 'error');
@@ -484,11 +515,17 @@
      * Render Grid Cards View
      */
     function renderGridView() {
+        const latestActivityId = getLatestActivityRepoId();
         let cardsHtml = '';
 
         state.filteredRepositories.forEach(repo => {
+            const isLatest = (repo.id === latestActivityId);
             const lang = repo.language || 'Unspecified';
             const langColor = languageColors[lang] || '#6e7681';
+            const cardBorder = isLatest
+                ? 'border-[#3fb950] ring-1 ring-[#3fb950]/40 shadow-[0_0_15px_rgba(63,185,80,0.15)]'
+                : 'border-[#30363d] hover:border-[#58a6ff]/50';
+
             const visibilityBadge = repo.private
                 ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[#382352] text-[#d2a8ff] border border-[#a371f7]/40">
                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
@@ -506,6 +543,22 @@
                    </span>`
                 : '';
 
+            const latestActivityBadge = isLatest
+                ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[#238636]/25 text-[#3fb950] border border-[#238636] shadow-sm animate-pulse" title="Most recently modified or pushed repository">
+                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.381z" clip-rule="evenodd"/></svg>
+                     Latest Activity
+                   </span>`
+                : '';
+
+            const liveSiteBadge = repo.homepage
+                ? `<a href="${escapeHtml(repo.homepage)}" target="_blank" rel="noopener noreferrer" 
+                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/50 transition shadow-sm"
+                      title="Open live website: ${escapeHtml(repo.homepage)}">
+                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                     <span>Live Site</span>
+                   </a>`
+                : '';
+
             const topicsHtml = (repo.topics && repo.topics.length > 0)
                 ? `<div class="flex flex-wrap gap-1 mt-2">
                      ${repo.topics.slice(0, 4).map(t => `<span class="px-2 py-0.5 rounded-full text-xs bg-[#1f2937] text-[#58a6ff] hover:bg-[#2d3748] transition cursor-pointer" onclick="window.filterByTopic('${escapeHtml(t)}')">#${escapeHtml(t)}</span>`).join('')}
@@ -514,10 +567,10 @@
                 : '';
 
             cardsHtml += `
-            <div class="bg-[#161b22] border border-[#30363d] hover:border-[#58a6ff]/50 rounded-xl p-5 flex flex-col justify-between transition-all duration-200 shadow-sm hover:shadow-md group">
+            <div class="bg-[#161b22] ${cardBorder} rounded-xl p-5 flex flex-col justify-between transition-all duration-200 shadow-sm hover:shadow-md group">
                 <div>
-                    <!-- Card Top: Name, Visibility & Fast Copy Name -->
-                    <div class="flex items-start justify-between gap-3">
+                    <!-- Card Top: Name, Badges & Obvious Copy Name Button -->
+                    <div class="flex items-start justify-between gap-2.5">
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 flex-wrap">
                                 <a href="${escapeHtml(repo.html_url)}" target="_blank" rel="noopener noreferrer" 
@@ -526,21 +579,24 @@
                                     <span>${escapeHtml(repo.name)}</span>
                                     <svg class="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-[#8b949e]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                                 </a>
+                                <!-- Dedicated Obvious Copy Name Button directly beside title -->
+                                <button onclick="window.copyRepoName('${escapeHtml(repo.name)}')" 
+                                        title="Copy exact repository name: ${escapeHtml(repo.name)}" 
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border border-[#30363d] hover:border-[#58a6ff] transition active:scale-95 flex-shrink-0 shadow-sm"
+                                        aria-label="Copy repository name">
+                                    <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                                    <span>Copy Name</span>
+                                </button>
                                 ${visibilityBadge}
                                 ${forkBadge}
+                                ${latestActivityBadge}
+                                ${liveSiteBadge}
                             </div>
                         </div>
-
-                        <!-- Single-click copy repo name -->
-                        <button onclick="window.copyRepoName('${escapeHtml(repo.name)}')" 
-                                title="Copy repository name" 
-                                class="p-1.5 rounded-md text-[#8b949e] hover:text-white hover:bg-[#21262d] border border-transparent hover:border-[#30363d] transition active:scale-95 flex-shrink-0">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
-                        </button>
                     </div>
 
                     <!-- Description -->
-                    <p class="text-xs text-[#8b949e] mt-2 line-clamp-2 leading-relaxed h-8">
+                    <p class="text-xs text-[#8b949e] mt-2.5 line-clamp-2 leading-relaxed h-8">
                         ${repo.description ? escapeHtml(repo.description) : '<span class="italic opacity-60">No description provided</span>'}
                     </p>
 
@@ -549,13 +605,13 @@
                 </div>
 
                 <div class="mt-4 pt-3 border-t border-[#21262d] space-y-3">
-                    <!-- Modification Chronology Section -->
+                    <!-- Modification Chronology Section (Relative + Exact YYYY-MM-DD HH:mm:ss on hover) -->
                     <div class="grid grid-cols-2 gap-2 text-[11px] text-[#8b949e] bg-[#0d1117] p-2.5 rounded-lg border border-[#21262d]">
-                        <div title="Last updated: ${formatExactTime(repo.updated_at)}" class="flex items-center gap-1.5">
+                        <div title="Updated: ${formatExactDateTime(repo.updated_at)}" class="flex items-center gap-1.5 cursor-help">
                             <svg class="w-3.5 h-3.5 text-[#3fb950] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                             <span class="truncate">Updated: <strong class="text-[#e6edf3] font-medium">${formatRelativeTime(repo.updated_at)}</strong></span>
                         </div>
-                        <div title="Last commit pushed: ${formatExactTime(repo.pushed_at)}" class="flex items-center gap-1.5">
+                        <div title="Pushed: ${formatExactDateTime(repo.pushed_at)}" class="flex items-center gap-1.5 cursor-help">
                             <svg class="w-3.5 h-3.5 text-[#58a6ff] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
                             <span class="truncate">Pushed: <strong class="text-[#e6edf3] font-medium">${formatRelativeTime(repo.pushed_at)}</strong></span>
                         </div>
@@ -600,6 +656,15 @@
                             <span>SSH</span>
                         </button>
 
+                        <!-- Live site action icon if available -->
+                        ${repo.homepage ? `
+                            <a href="${escapeHtml(repo.homepage)}" target="_blank" rel="noopener noreferrer" 
+                               class="p-1.5 rounded-md text-[#3fb950] hover:text-white hover:bg-[#238636] border border-[#238636]/50 transition active:scale-95 flex items-center justify-center"
+                               title="Open live website: ${escapeHtml(repo.homepage)}">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                            </a>
+                        ` : ''}
+
                         <!-- Inspect Details Modal Trigger -->
                         <button onclick="window.openRepoModal(${repo.id})" 
                                 class="p-1.5 rounded-md text-[#8b949e] hover:text-white hover:bg-[#21262d] border border-[#30363d] transition active:scale-95"
@@ -619,9 +684,11 @@
      * Render Compact Table / List View
      */
     function renderListView() {
+        const latestActivityId = getLatestActivityRepoId();
         let rowsHtml = '';
 
         state.filteredRepositories.forEach(repo => {
+            const isLatest = (repo.id === latestActivityId);
             const lang = repo.language || 'Unspecified';
             const langColor = languageColors[lang] || '#6e7681';
             const visibilityBadge = repo.private
@@ -629,21 +696,40 @@
                 : `<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-[#1b2533] text-[#79c0ff] border border-[#388bfd]/30">Public</span>`;
 
             rowsHtml += `
-            <tr class="border-b border-[#21262d] hover:bg-[#161b22]/70 transition-colors group">
-                <!-- Name & Visibility -->
+            <tr class="border-b border-[#21262d] hover:bg-[#161b22]/70 transition-colors group ${isLatest ? 'bg-[#238636]/5' : ''}">
+                <!-- Name & Visibility & Direct Copy Name -->
                 <td class="py-3 px-4">
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 flex-wrap">
                         <a href="${escapeHtml(repo.html_url)}" target="_blank" rel="noopener noreferrer" 
                            class="text-[#58a6ff] hover:underline font-semibold text-sm">
                             ${escapeHtml(repo.name)}
                         </a>
+
+                        <!-- Dedicated Obvious Copy Name Button -->
+                        <button onclick="window.copyRepoName('${escapeHtml(repo.name)}')" 
+                                title="Copy exact repository name: ${escapeHtml(repo.name)}" 
+                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border border-[#30363d] hover:border-[#58a6ff] transition active:scale-95 shadow-sm"
+                                aria-label="Copy repository name">
+                            <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                            <span>Copy</span>
+                        </button>
+
                         ${visibilityBadge}
                         ${repo.fork ? `<span class="text-[11px] text-[#8b949e]">(Fork)</span>` : ''}
-                        <button onclick="window.copyRepoName('${escapeHtml(repo.name)}')" 
-                                title="Copy name" 
-                                class="opacity-0 group-hover:opacity-100 p-1 text-[#8b949e] hover:text-white transition">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
-                        </button>
+                        ${isLatest ? `
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#238636]/25 text-[#3fb950] border border-[#238636] animate-pulse">
+                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.381z" clip-rule="evenodd"/></svg>
+                                Latest Activity
+                            </span>
+                        ` : ''}
+                        ${repo.homepage ? `
+                            <a href="${escapeHtml(repo.homepage)}" target="_blank" rel="noopener noreferrer" 
+                               class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/50 transition shadow-sm"
+                               title="Open live website: ${escapeHtml(repo.homepage)}">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                <span>Live Site</span>
+                            </a>
+                        ` : ''}
                     </div>
                     <div class="text-xs text-[#8b949e] truncate max-w-md mt-0.5">
                         ${escapeHtml(repo.description || 'No description')}
@@ -658,11 +744,11 @@
                     </div>
                 </td>
 
-                <!-- Modification Chronology: Updated & Pushed -->
-                <td class="py-3 px-4 text-xs whitespace-nowrap" title="Exact: ${formatExactTime(repo.updated_at)}">
+                <!-- Modification Chronology: Updated & Pushed (Relative + Exact on hover) -->
+                <td class="py-3 px-4 text-xs whitespace-nowrap cursor-help" title="Updated: ${formatExactDateTime(repo.updated_at)}">
                     <span class="text-[#3fb950] font-medium">${formatRelativeTime(repo.updated_at)}</span>
                 </td>
-                <td class="py-3 px-4 text-xs whitespace-nowrap" title="Exact: ${formatExactTime(repo.pushed_at)}">
+                <td class="py-3 px-4 text-xs whitespace-nowrap cursor-help" title="Pushed: ${formatExactDateTime(repo.pushed_at)}">
                     <span class="text-[#58a6ff] font-medium">${formatRelativeTime(repo.pushed_at)}</span>
                 </td>
 
@@ -672,7 +758,7 @@
                     <span class="text-[#8b949e] ml-2">${formatRepoSize(repo.size)}</span>
                 </td>
 
-                <!-- Fast Copy Actions -->
+                <!-- Fast Copy & Live Actions -->
                 <td class="py-3 px-4 text-right whitespace-nowrap">
                     <div class="inline-flex items-center gap-1">
                         <button onclick="window.copyHttpsClone('${escapeHtml(repo.clone_url)}', '${escapeHtml(repo.name)}')" 
@@ -685,6 +771,13 @@
                                 title="Copy SSH Clone URL">
                             SSH
                         </button>
+                        ${repo.homepage ? `
+                            <a href="${escapeHtml(repo.homepage)}" target="_blank" rel="noopener noreferrer" 
+                               class="px-2 py-1 rounded text-xs bg-[#238636]/20 hover:bg-[#238636]/40 text-[#3fb950] border border-[#238636]/50 transition" 
+                               title="Open live website: ${escapeHtml(repo.homepage)}">
+                                Live
+                            </a>
+                        ` : ''}
                         <button onclick="window.openRepoModal(${repo.id})" 
                                 class="p-1 rounded text-[#8b949e] hover:text-white hover:bg-[#21262d] transition"
                                 title="Details">
@@ -706,7 +799,7 @@
                         <th class="py-3 px-4">Updated</th>
                         <th class="py-3 px-4">Pushed</th>
                         <th class="py-3 px-4 text-right">Stars & Size</th>
-                        <th class="py-3 px-4 text-right">Clone Actions</th>
+                        <th class="py-3 px-4 text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -770,8 +863,16 @@
         elements.modalContent.innerHTML = `
             <div class="flex items-start justify-between gap-4 pb-4 border-b border-[#30363d]">
                 <div>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 flex-wrap">
                         <h3 class="text-xl font-bold text-white">${escapeHtml(repo.name)}</h3>
+                        <!-- Dedicated Obvious Copy Name Button in Modal -->
+                        <button onclick="window.copyRepoName('${escapeHtml(repo.name)}')" 
+                                title="Copy exact repository name: ${escapeHtml(repo.name)}" 
+                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border border-[#30363d] hover:border-[#58a6ff] transition active:scale-95 shadow-sm"
+                                aria-label="Copy repository name">
+                            <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                            <span>Copy Name</span>
+                        </button>
                         <span class="px-2.5 py-0.5 text-xs rounded-full font-medium ${repo.private ? 'bg-[#382352] text-[#d2a8ff] border border-[#a371f7]/40' : 'bg-[#1b2533] text-[#79c0ff] border border-[#388bfd]/30'}">
                             ${repo.private ? 'Private' : 'Public'}
                         </span>
@@ -779,11 +880,21 @@
                     </div>
                     <p class="text-xs text-[#8b949e] mt-1 font-mono">${escapeHtml(repo.full_name)}</p>
                 </div>
-                <a href="${escapeHtml(repo.html_url)}" target="_blank" rel="noopener noreferrer" 
-                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white transition">
-                    <span>Open on GitHub</span>
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                </a>
+                <div class="flex items-center gap-2 flex-wrap flex-shrink-0">
+                    ${repo.homepage ? `
+                        <a href="${escapeHtml(repo.homepage)}" target="_blank" rel="noopener noreferrer" 
+                           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#238636]/25 hover:bg-[#238636]/40 text-[#3fb950] border border-[#238636]/50 transition shadow-sm"
+                           title="Open live website: ${escapeHtml(repo.homepage)}">
+                            <span>Live Site</span>
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                        </a>
+                    ` : ''}
+                    <a href="${escapeHtml(repo.html_url)}" target="_blank" rel="noopener noreferrer" 
+                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white transition">
+                        <span>Open on GitHub</span>
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                    </a>
+                </div>
             </div>
 
             <!-- Description -->
@@ -801,17 +912,17 @@
                     <div class="bg-[#0d1117] p-3 rounded-lg border border-[#30363d]">
                         <span class="text-xs text-[#8b949e] block">Last Updated:</span>
                         <strong class="text-sm text-[#3fb950] block mt-0.5">${formatRelativeTime(repo.updated_at)}</strong>
-                        <span class="text-[11px] text-[#6e7681] block mt-1 font-mono">${formatExactTime(repo.updated_at)}</span>
+                        <span class="text-[11px] text-[#6e7681] block mt-1 font-mono">${formatExactDateTime(repo.updated_at)}</span>
                     </div>
                     <div class="bg-[#0d1117] p-3 rounded-lg border border-[#30363d]">
                         <span class="text-xs text-[#8b949e] block">Last Push:</span>
                         <strong class="text-sm text-[#58a6ff] block mt-0.5">${formatRelativeTime(repo.pushed_at)}</strong>
-                        <span class="text-[11px] text-[#6e7681] block mt-1 font-mono">${formatExactTime(repo.pushed_at)}</span>
+                        <span class="text-[11px] text-[#6e7681] block mt-1 font-mono">${formatExactDateTime(repo.pushed_at)}</span>
                     </div>
                     <div class="bg-[#0d1117] p-3 rounded-lg border border-[#30363d]">
                         <span class="text-xs text-[#8b949e] block">Created On:</span>
                         <strong class="text-sm text-[#d2a8ff] block mt-0.5">${formatRelativeTime(repo.created_at)}</strong>
-                        <span class="text-[11px] text-[#6e7681] block mt-1 font-mono">${formatExactTime(repo.created_at)}</span>
+                        <span class="text-[11px] text-[#6e7681] block mt-1 font-mono">${formatExactDateTime(repo.created_at)}</span>
                     </div>
                 </div>
             </div>
@@ -1018,7 +1129,7 @@
 
     // Expose global helpers for inline button handlers
     window.copyRepoName = function (name) {
-        copyToClipboard(name, `repository name "${name}"`);
+        copyToClipboard(name, `"${name}"`, `Copied: ${name}`);
     };
 
     window.copyHttpsClone = function (url, name) {
