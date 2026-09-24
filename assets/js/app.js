@@ -154,6 +154,275 @@
         `;
     }
 
+    // Prompt Engineer / Explainer Predefined Choices
+    const PROMPT_TOOLS_STORAGE_KEY = 'all_repos_prompt_tools';
+    const PROMPT_TOOL_CHOICES = [
+        { value: 'none', label: 'Unassigned / None' },
+        { value: 'Gemini', label: 'Gemini' },
+        { value: 'ChatGPT', label: 'ChatGPT' },
+        { value: 'Claude', label: 'Claude' },
+        { value: 'Other', label: 'Other' },
+    ];
+
+    /**
+     * Get stored Prompt Explainer dictionary from localStorage
+     */
+    function getPromptToolsMap() {
+        try {
+            const stored = localStorage.getItem(PROMPT_TOOLS_STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    /**
+     * Retrieve Prompt Explainer tool assigned to a given repository (by name or ID)
+     */
+    function getRepoPromptTool(repo) {
+        if (!repo) return 'none';
+        const map = getPromptToolsMap();
+        return map[repo.name] || (repo.id ? map[String(repo.id)] : null) || 'none';
+    }
+
+    /**
+     * Update Prompt Explainer tool assigned to a repository and persist to localStorage
+     */
+    function setRepoPromptTool(repoName, toolValue, repoId) {
+        try {
+            const map = getPromptToolsMap();
+            if (toolValue === 'none') {
+                delete map[repoName];
+                if (repoId) delete map[String(repoId)];
+            } else {
+                map[repoName] = toolValue;
+                if (repoId) map[String(repoId)] = toolValue;
+            }
+            localStorage.setItem(PROMPT_TOOLS_STORAGE_KEY, JSON.stringify(map));
+
+            const choice = PROMPT_TOOL_CHOICES.find(c => c.value === toolValue);
+            const label = choice ? choice.label : toolValue;
+            showToast(`Prompt / Explainer for "${repoName}" updated to ${label}`, 'success');
+
+            // Sync all matching select elements across views without interrupting user
+            const selects = document.querySelectorAll(`select[data-repo-prompt-name="${CSS.escape(repoName)}"]`);
+            selects.forEach(sel => {
+                sel.value = toolValue;
+                updatePromptSelectStyle(sel, toolValue);
+            });
+        } catch (e) {
+            console.error('Failed to save prompt explainer to localStorage:', e);
+            showToast('Failed to save prompt explainer selection.', 'error');
+        }
+    }
+
+    /**
+     * Update Tailwind styling on Prompt Select element dynamically based on selection
+     */
+    function updatePromptSelectStyle(selectEl, toolValue) {
+        if (!selectEl) return;
+        if (toolValue === 'Gemini') {
+            selectEl.className = 'bg-[#161b22] text-[#58a6ff] border border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (toolValue === 'ChatGPT') {
+            selectEl.className = 'bg-[#161b22] text-[#3fb950] border border-[#3fb950]/50 focus:border-[#3fb950] focus:ring-1 focus:ring-[#3fb950] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (toolValue === 'Claude') {
+            selectEl.className = 'bg-[#161b22] text-[#d29922] border border-[#d29922]/50 focus:border-[#d29922] focus:ring-1 focus:ring-[#d29922] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else if (toolValue === 'Other') {
+            selectEl.className = 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d] focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        } else {
+            selectEl.className = 'bg-[#0d1117] text-[#8b949e] border border-[#30363d] hover:border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        }
+    }
+
+    /**
+     * Build HTML markup for Prompt Explainer dropdown selector
+     */
+    function buildPromptSelectHtml(repo) {
+        const current = getRepoPromptTool(repo);
+        const repoNameEsc = escapeHtml(repo.name);
+        const repoId = repo.id || 0;
+
+        let styleClasses = 'bg-[#0d1117] text-[#8b949e] border border-[#30363d] hover:border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        if (current === 'Gemini') styleClasses = 'bg-[#161b22] text-[#58a6ff] border border-[#58a6ff]/50 focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'ChatGPT') styleClasses = 'bg-[#161b22] text-[#3fb950] border border-[#3fb950]/50 focus:border-[#3fb950] focus:ring-1 focus:ring-[#3fb950] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'Claude') styleClasses = 'bg-[#161b22] text-[#d29922] border border-[#d29922]/50 focus:border-[#d29922] focus:ring-1 focus:ring-[#d29922] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+        else if (current === 'Other') styleClasses = 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d] focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2.5 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-medium';
+
+        return `
+            <select data-repo-prompt-name="${repoNameEsc}" 
+                    onchange="window.setRepoPromptTool('${repoNameEsc}', this.value, ${repoId})" 
+                    class="${styleClasses}">
+                ${PROMPT_TOOL_CHOICES.map(c => `
+                    <option value="${c.value}" class="bg-[#161b22] text-[#e6edf3]" ${current === c.value ? 'selected' : ''}>
+                        ${escapeHtml(c.label)}
+                    </option>
+                `).join('')}
+            </select>
+        `;
+    }
+
+    // Work Notes & Progress Persistence Keys
+    const NOTES_COMPLETED_KEY = 'all_repos_notes_completed';
+    const NOTES_NEXT_STEPS_KEY = 'all_repos_notes_next_steps';
+    let notesSaveTimeout = null;
+
+    /**
+     * Open Work Notes & Progress side drawer
+     */
+    function openNotesDrawer() {
+        if (!elements.notesDrawer) return;
+        elements.notesDrawer.classList.remove('invisible', 'pointer-events-none');
+        elements.notesDrawer.classList.add('visible', 'pointer-events-auto');
+        elements.notesDrawerBackdrop.classList.remove('opacity-0', 'pointer-events-none');
+        elements.notesDrawerBackdrop.classList.add('opacity-100', 'pointer-events-auto');
+        elements.notesDrawerPanel.classList.remove('translate-x-full');
+        elements.notesDrawerPanel.classList.add('translate-x-0');
+        document.body.classList.add('overflow-hidden');
+    }
+
+    /**
+     * Close Work Notes & Progress side drawer
+     */
+    function closeNotesDrawer() {
+        if (!elements.notesDrawer) return;
+        elements.notesDrawerPanel.classList.remove('translate-x-0');
+        elements.notesDrawerPanel.classList.add('translate-x-full');
+        elements.notesDrawerBackdrop.classList.remove('opacity-100', 'pointer-events-auto');
+        elements.notesDrawerBackdrop.classList.add('opacity-0', 'pointer-events-none');
+        setTimeout(() => {
+            if (elements.notesDrawerPanel && elements.notesDrawerPanel.classList.contains('translate-x-full')) {
+                elements.notesDrawer.classList.remove('visible', 'pointer-events-auto');
+                elements.notesDrawer.classList.add('invisible', 'pointer-events-none');
+                document.body.classList.remove('overflow-hidden');
+            }
+        }, 300);
+    }
+
+    /**
+     * Load persisted notes from localStorage into textareas
+     */
+    function loadNotes() {
+        try {
+            const completed = localStorage.getItem(NOTES_COMPLETED_KEY) || '';
+            const nextSteps = localStorage.getItem(NOTES_NEXT_STEPS_KEY) || '';
+            if (elements.notesCompletedText) elements.notesCompletedText.value = completed;
+            if (elements.notesNextStepsText) elements.notesNextStepsText.value = nextSteps;
+            updateNotesStats();
+        } catch (e) {
+            console.error('Failed to load work notes from localStorage:', e);
+        }
+    }
+
+    /**
+     * Handle auto-save on user input in notes textareas
+     */
+    function handleNotesInput() {
+        const completed = elements.notesCompletedText ? elements.notesCompletedText.value : '';
+        const nextSteps = elements.notesNextStepsText ? elements.notesNextStepsText.value : '';
+
+        try {
+            localStorage.setItem(NOTES_COMPLETED_KEY, completed);
+            localStorage.setItem(NOTES_NEXT_STEPS_KEY, nextSteps);
+        } catch (e) {
+            console.error('Failed to save notes to localStorage:', e);
+        }
+
+        updateNotesStats();
+
+        if (elements.notesAutoSaveStatus) {
+            elements.notesAutoSaveStatus.innerHTML = `
+                <span class="w-1.5 h-1.5 rounded-full bg-[#58a6ff] animate-ping"></span>
+                <span class="text-[#58a6ff]">Saving...</span>
+            `;
+            clearTimeout(notesSaveTimeout);
+            notesSaveTimeout = setTimeout(() => {
+                if (elements.notesAutoSaveStatus) {
+                    elements.notesAutoSaveStatus.innerHTML = `
+                        <span class="w-1.5 h-1.5 rounded-full bg-[#3fb950]"></span>
+                        <span class="text-[#3fb950]">Saved locally</span>
+                    `;
+                }
+            }, 400);
+        }
+    }
+
+    /**
+     * Update character counts and navbar active indicator dot
+     */
+    function updateNotesStats() {
+        const completed = elements.notesCompletedText ? elements.notesCompletedText.value : '';
+        const nextSteps = elements.notesNextStepsText ? elements.notesNextStepsText.value : '';
+
+        if (elements.notesCompletedCount) {
+            elements.notesCompletedCount.textContent = `${completed.length.toLocaleString()} chars`;
+        }
+        if (elements.notesNextStepsCount) {
+            elements.notesNextStepsCount.textContent = `${nextSteps.length.toLocaleString()} chars`;
+        }
+
+        const hasNotes = Boolean(completed.trim() || nextSteps.trim());
+        if (elements.notesIndicator) {
+            if (hasNotes) {
+                elements.notesIndicator.classList.remove('hidden');
+            } else {
+                elements.notesIndicator.classList.add('hidden');
+            }
+        }
+    }
+
+    /**
+     * Copy formatted Markdown notes to clipboard
+     */
+    function copyFormattedNotes() {
+        const completed = elements.notesCompletedText ? elements.notesCompletedText.value.trim() : '';
+        const nextSteps = elements.notesNextStepsText ? elements.notesNextStepsText.value.trim() : '';
+
+        if (!completed && !nextSteps) {
+            showToast('Work notes are currently empty.', 'info');
+            return;
+        }
+
+        const formatted = [
+            '# All Repos - Work Notes & Progress',
+            '',
+            '## What Was Done / Completed:',
+            completed || '_No completed items recorded yet._',
+            '',
+            '## In Progress / Next Steps:',
+            nextSteps || '_No upcoming steps recorded yet._',
+            '',
+            `> Generated on ${new Date().toUTCString()} from All Repos`
+        ].join('\n');
+
+        copyToClipboard(formatted, 'Formatted Work Notes');
+    }
+
+    /**
+     * Clear all work notes after confirmation
+     */
+    function clearAllNotes() {
+        const completed = elements.notesCompletedText ? elements.notesCompletedText.value.trim() : '';
+        const nextSteps = elements.notesNextStepsText ? elements.notesNextStepsText.value.trim() : '';
+
+        if (!completed && !nextSteps) {
+            showToast('Work notes are already empty.', 'info');
+            return;
+        }
+
+        if (window.confirm('Are you sure you want to clear all work notes? This action cannot be undone.')) {
+            try {
+                localStorage.removeItem(NOTES_COMPLETED_KEY);
+                localStorage.removeItem(NOTES_NEXT_STEPS_KEY);
+            } catch (e) {
+                console.error('Failed to clear notes in localStorage:', e);
+            }
+            if (elements.notesCompletedText) elements.notesCompletedText.value = '';
+            if (elements.notesNextStepsText) elements.notesNextStepsText.value = '';
+            updateNotesStats();
+            showToast('All work notes have been cleared.', 'info');
+        }
+    }
+
     // Language color mapping for common programming languages
     const languageColors = {
         'JavaScript': '#f1e05a',
@@ -218,6 +487,20 @@
         rateLimitChip: document.getElementById('rateLimitChip'),
         rateLimitText: document.getElementById('rateLimitText'),
         lastUpdatedText: document.getElementById('lastUpdatedText'),
+        // Work Notes Drawer elements
+        notesToggleBtn: document.getElementById('notesToggleBtn'),
+        notesIndicator: document.getElementById('notesIndicator'),
+        notesDrawer: document.getElementById('notesDrawer'),
+        notesDrawerBackdrop: document.getElementById('notesDrawerBackdrop'),
+        notesDrawerPanel: document.getElementById('notesDrawerPanel'),
+        closeNotesDrawerBtn: document.getElementById('closeNotesDrawerBtn'),
+        notesCompletedText: document.getElementById('notesCompletedText'),
+        notesNextStepsText: document.getElementById('notesNextStepsText'),
+        notesCompletedCount: document.getElementById('notesCompletedCount'),
+        notesNextStepsCount: document.getElementById('notesNextStepsCount'),
+        notesAutoSaveStatus: document.getElementById('notesAutoSaveStatus'),
+        copyAllNotesBtn: document.getElementById('copyAllNotesBtn'),
+        clearNotesBtn: document.getElementById('clearNotesBtn'),
     };
 
     /**
@@ -553,7 +836,8 @@
                 const lang = (repo.language || '').toLowerCase();
                 const topics = (repo.topics || []).join(' ').toLowerCase();
                 const aiTool = (getRepoAiTool(repo) || '').toLowerCase();
-                return name.includes(q) || desc.includes(q) || lang.includes(q) || topics.includes(q) || aiTool.includes(q);
+                const promptTool = (getRepoPromptTool(repo) || '').toLowerCase();
+                return name.includes(q) || desc.includes(q) || lang.includes(q) || topics.includes(q) || aiTool.includes(q) || promptTool.includes(q);
             });
         }
 
@@ -746,13 +1030,22 @@
                         </div>
                     </div>
 
-                    <!-- AI Dev / Tool Selector in Card -->
-                    <div class="flex items-center justify-between text-xs pt-1">
-                        <span class="text-[#8b949e] font-medium flex items-center gap-1.5">
-                            <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-                            <span>AI Dev / Tool:</span>
-                        </span>
-                        ${buildAiSelectHtml(repo)}
+                    <!-- AI Dev & Prompt Explainer Selectors in Card -->
+                    <div class="space-y-2 pt-1">
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="text-[#8b949e] font-medium flex items-center gap-1.5">
+                                <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                <span>AI Dev / Tool:</span>
+                            </span>
+                            ${buildAiSelectHtml(repo)}
+                        </div>
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="text-[#8b949e] font-medium flex items-center gap-1.5">
+                                <svg class="w-3.5 h-3.5 text-[#a371f7]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+                                <span>Prompt / Explainer:</span>
+                            </span>
+                            ${buildPromptSelectHtml(repo)}
+                        </div>
                     </div>
 
                     <!-- Language and Metadata Indicators -->
@@ -894,6 +1187,11 @@
                     ${buildAiSelectHtml(repo)}
                 </td>
 
+                <!-- Prompt / Explainer Column -->
+                <td class="py-3 px-4 whitespace-nowrap">
+                    ${buildPromptSelectHtml(repo)}
+                </td>
+
                 <!-- Modification Chronology: Updated & Pushed (Relative + Exact on hover) -->
                 <td class="py-3 px-4 text-xs whitespace-nowrap cursor-help" title="Updated: ${formatExactDateTime(repo.updated_at)}">
                     <span class="text-[#3fb950] font-medium">${formatRelativeTime(repo.updated_at)}</span>
@@ -944,6 +1242,7 @@
                         <th class="py-3 px-4">Language</th>
                         <th class="py-3 px-4">Live App</th>
                         <th class="py-3 px-4">AI Dev / Tool</th>
+                        <th class="py-3 px-4">Prompt / Explainer</th>
                         <th class="py-3 px-4">Updated</th>
                         <th class="py-3 px-4">Pushed</th>
                         <th class="py-3 px-4 text-right">Stars & Size</th>
@@ -1108,7 +1407,7 @@
             </div>
 
             <!-- Repository Meta Details -->
-            <div class="pt-4 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs text-[#8b949e]">
+            <div class="pt-4 grid grid-cols-2 md:grid-cols-6 gap-3 text-xs text-[#8b949e]">
                 <div>
                     <span class="block">Language</span>
                     <strong class="text-white flex items-center gap-1.5 mt-0.5">
@@ -1119,6 +1418,10 @@
                 <div>
                     <span class="block">AI Dev / Tool</span>
                     <div class="mt-1">${buildAiSelectHtml(repo)}</div>
+                </div>
+                <div>
+                    <span class="block">Prompt / Explainer</span>
+                    <div class="mt-1">${buildPromptSelectHtml(repo)}</div>
                 </div>
                 <div>
                     <span class="block">Default Branch</span>
@@ -1279,11 +1582,41 @@
         elements.closeModalBtn.addEventListener('click', closeRepoModal);
         elements.modalBackdrop.addEventListener('click', closeRepoModal);
 
+        // Work Notes Drawer events
+        if (elements.notesToggleBtn) {
+            elements.notesToggleBtn.addEventListener('click', openNotesDrawer);
+        }
+        if (elements.closeNotesDrawerBtn) {
+            elements.closeNotesDrawerBtn.addEventListener('click', closeNotesDrawer);
+        }
+        if (elements.notesDrawerBackdrop) {
+            elements.notesDrawerBackdrop.addEventListener('click', closeNotesDrawer);
+        }
+        if (elements.notesCompletedText) {
+            elements.notesCompletedText.addEventListener('input', handleNotesInput);
+        }
+        if (elements.notesNextStepsText) {
+            elements.notesNextStepsText.addEventListener('input', handleNotesInput);
+        }
+        if (elements.copyAllNotesBtn) {
+            elements.copyAllNotesBtn.addEventListener('click', copyFormattedNotes);
+        }
+        if (elements.clearNotesBtn) {
+            elements.clearNotesBtn.addEventListener('click', clearAllNotes);
+        }
+
         // Keyboard Shortcuts
         document.addEventListener('keydown', (e) => {
-            // Esc to close modal
-            if (e.key === 'Escape' && !elements.repoModal.classList.contains('hidden')) {
-                closeRepoModal();
+            // Esc to close notes drawer or modal
+            if (e.key === 'Escape') {
+                if (elements.notesDrawer && !elements.notesDrawer.classList.contains('invisible')) {
+                    closeNotesDrawer();
+                    return;
+                }
+                if (elements.repoModal && !elements.repoModal.classList.contains('hidden')) {
+                    closeRepoModal();
+                    return;
+                }
             }
             // Press '/' to focus search bar (if not typing in input)
             if (e.key === '/' && document.activeElement !== elements.searchInput) {
@@ -1329,6 +1662,18 @@
         setRepoAiTool(name, val, id);
     };
 
+    window.setRepoPromptTool = function (name, val, id) {
+        setRepoPromptTool(name, val, id);
+    };
+
+    window.openNotesDrawer = function () {
+        openNotesDrawer();
+    };
+
+    window.closeNotesDrawer = function () {
+        closeNotesDrawer();
+    };
+
     window.copyAllVisibleRepoLinks = function () {
         copyAllVisibleRepoUrls();
     };
@@ -1355,6 +1700,7 @@
     // Initialize application
     function init() {
         setupEventListeners();
+        loadNotes();
         fetchRepositories(false);
     }
 

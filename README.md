@@ -30,19 +30,30 @@ Target Repository: [https://github.com/khaledtaha-tech/All_Repos](https://github
 
 ### 3. Clipboard Utilities, Live Deployment Links & AI Tool Tracking
 - **AI Dev / Assistant Tracking**: Interactive "AI Dev / Tool" dropdown column tagging repositories with the AI tools used in their development (`AntiGravity`, `ChatGPT`, `Cursor`, `Claude`, `Other`, or `Unassigned / None`). Selections are permanently stored and preserved across sessions via browser `localStorage`.
+- **Prompt Engineer / Explainer Tracking**: Dedicated "Prompt / Explainer" dropdown column tracking prompt engineering models and explainer tools (`Gemini`, `ChatGPT`, `Claude`, `Other`, or `Unassigned / None`). Stored per repository in browser `localStorage` and synchronized across Table, Grid, and Modal views.
 - **Dedicated "Live App" Column**: Automatically verifies the `homepage` URL from GitHub API data; renders active, clickable "Visit App ↗" badges for immediate navigation to deployed applications, or a clean muted dash when unassigned.
 - **Clean "Repo Link" Actions**: Streamlined action buttons linking directly to the repository on GitHub in a new tab with an integrated one-click URL copy icon.
 - **Dedicated Repo Name Copy**: An obvious, dedicated "Copy Name" button directly beside each repository title in both Table and Grid views, triggering an instant confirmation toast (`Copied: <name>`).
 - **"Copy All Visible Names & URLs"**: Instantly copy a newline-separated list of all repository names or GitHub URLs currently visible under the active search query and filter criteria.
 - **Toast Notifications**: Non-intrusive floating feedback confirms every successful copy operation.
 
-### 4. Live Search & Visibility Filtering
-- **Real-Time Instant Search**: Filter by repository name, description, primary language, topic tags, or assigned AI tool with instant feedback.
+### 4. Work Notes & Progress Drawer
+- **Persistent Notes Drawer**: Slide-over panel accessible directly from the top navigation bar to track engineering status, updates, and development roadmaps.
+- **Structured Fields**:
+  - `What Was Done / Completed`: Track accomplished tasks, resolved issues, and deployed commits.
+  - `In Progress / Next Steps`: Plan pending features, review items, and architectural notes.
+- **Instant Auto-Save**: Real-time debounce saving to browser `localStorage` (`all_repos_notes_completed`, `all_repos_notes_next_steps`) with a live status indicator and character counter.
+- **Navbar Indicator**: Animated pulse badge in the top navbar signals when notes are present.
+- **One-Click Export**: Format and copy all notes into clean Markdown with a single click.
+
+### 5. Live Search & Responsive Widescreen Layout
+- **Widescreen Layout Optimization**: Full-width fluid container (`max-w-[98%] 2xl:max-w-[96%]`) eliminating cramped margins on widescreen displays and maximizing horizontal table readability.
+- **Real-Time Instant Search**: Filter by repository name, description, primary language, topic tags, assigned AI tool, or prompt explainer with instant feedback.
 - **Visibility Toggle**: Filter between **All**, **Public**, **Private**, **Sources Only**, and **Forks**.
 - **Dynamic Language Filter**: Automatically discovers and aggregates all languages present across your repositories, showing counts for each.
 - **View Modes**: Switch between responsive Grid Cards and a compact Table List view.
 
-### 5. API Resilience & Rate Limit Monitoring
+### 6. API Resilience & Rate Limit Monitoring
 - **Live Rate Limit Monitor**: Tracks GitHub API quota usage (`remaining / limit`) with countdown reset timers.
 - **Built-In Local Caching**: Optional JSON-based caching to conserve API rate limits while allowing one-click manual refresh.
 - **Secure Secret Architecture**: Access tokens are kept strictly in `config.php` (which is excluded from Git via `.gitignore`) or loaded from environment variables (`GITHUB_TOKEN`).

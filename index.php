@@ -79,7 +79,7 @@
 
     <!-- Top Navigation Bar -->
     <header class="bg-[#161b22] border-b border-[#30363d] sticky top-0 z-30 shadow-md">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+        <div class="w-full max-w-[98%] 2xl:max-w-[96%] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
             
             <!-- Branding -->
             <div class="flex items-center gap-3">
@@ -116,6 +116,15 @@
                     <span class="hidden sm:inline">Refresh</span>
                 </button>
 
+                <!-- Work Notes & Progress Drawer Trigger -->
+                <button id="notesToggleBtn" 
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white border border-[#30363d] hover:border-[#e3b341]/60 transition active:scale-95 shadow-sm relative"
+                        title="Open Work Notes & Progress panel">
+                    <svg class="w-3.5 h-3.5 text-[#e3b341]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    <span class="hidden sm:inline">Notes</span>
+                    <span id="notesIndicator" class="hidden w-2 h-2 rounded-full bg-[#3fb950] animate-pulse" title="Notes present"></span>
+                </button>
+
                 <!-- User Profile Container -->
                 <div id="userProfileContainer"></div>
 
@@ -131,7 +140,7 @@
     </header>
 
     <!-- Main Container -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <main class="flex-1 w-full max-w-[98%] 2xl:max-w-[96%] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
         <!-- Error Banner (Hidden by default) -->
         <div id="errorBanner" class="hidden bg-[#3d1a1f] border border-[#f85149] rounded-xl p-5 shadow-lg">
@@ -380,9 +389,96 @@
         </div>
     </div>
 
+    <!-- Work Notes & Progress Side Drawer -->
+    <div id="notesDrawer" class="fixed inset-0 z-50 pointer-events-none transition-visibility duration-300 invisible">
+        <!-- Backdrop -->
+        <div id="notesDrawerBackdrop" class="fixed inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-300 pointer-events-none"></div>
+
+        <!-- Drawer Content Panel -->
+        <div id="notesDrawerPanel" class="fixed inset-y-0 right-0 max-w-md w-full bg-[#161b22] border-l border-[#30363d] shadow-2xl flex flex-col transform translate-x-full transition-transform duration-300 ease-in-out pointer-events-auto">
+            
+            <!-- Drawer Header -->
+            <div class="p-4 sm:p-5 border-b border-[#30363d] flex items-center justify-between gap-3 bg-[#161b22]">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-lg bg-[#21262d] border border-[#30363d] text-[#e3b341]">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white tracking-tight">Work Notes & Progress</h3>
+                        <p class="text-[11px] text-[#8b949e]">Auto-saved to local browser storage</p>
+                    </div>
+                </div>
+                <button id="closeNotesDrawerBtn" class="p-1.5 rounded-lg text-[#8b949e] hover:text-white hover:bg-[#21262d] transition" title="Close drawer (Esc)">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <!-- Drawer Body (Scrollable) -->
+            <div class="flex-1 p-4 sm:p-5 overflow-y-auto space-y-5">
+                
+                <!-- Section 1: What Was Done / Completed -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label for="notesCompletedText" class="text-xs font-semibold text-[#3fb950] flex items-center gap-1.5 uppercase tracking-wider">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span>What Was Done / Completed</span>
+                        </label>
+                        <span id="notesCompletedCount" class="text-[11px] text-[#8b949e] font-mono">0 chars</span>
+                    </div>
+                    <textarea id="notesCompletedText" 
+                              rows="6" 
+                              placeholder="Record finished features, refactorings, resolved bugs, or deployed changes..."
+                              class="w-full bg-[#0d1117] border border-[#30363d] focus:border-[#3fb950] focus:ring-1 focus:ring-[#3fb950] rounded-xl p-3 text-xs text-[#e6edf3] placeholder-[#8b949e]/60 outline-none transition resize-y leading-relaxed font-sans"></textarea>
+                </div>
+
+                <!-- Section 2: In Progress / Next Steps -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label for="notesNextStepsText" class="text-xs font-semibold text-[#58a6ff] flex items-center gap-1.5 uppercase tracking-wider">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            <span>In Progress / Next Steps</span>
+                        </label>
+                        <span id="notesNextStepsCount" class="text-[11px] text-[#8b949e] font-mono">0 chars</span>
+                    </div>
+                    <textarea id="notesNextStepsText" 
+                              rows="6" 
+                              placeholder="Plan upcoming tasks, pending PRs, architectural ideas, or reminders..."
+                              class="w-full bg-[#0d1117] border border-[#30363d] focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-xl p-3 text-xs text-[#e6edf3] placeholder-[#8b949e]/60 outline-none transition resize-y leading-relaxed font-sans"></textarea>
+                </div>
+
+                <!-- Helpful Quick Tips Card -->
+                <div class="bg-[#0d1117] border border-[#30363d] rounded-xl p-3 text-xs text-[#8b949e] space-y-1">
+                    <div class="text-[#c9d1d9] font-medium flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-[#e3b341]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span>Persistent Local Storage</span>
+                    </div>
+                    <p class="leading-relaxed text-[11px]">Notes persist across page refreshes and browser tabs in your local browser storage. No server transmission required.</p>
+                </div>
+            </div>
+
+            <!-- Drawer Footer Actions -->
+            <div class="p-4 sm:p-5 border-t border-[#30363d] bg-[#161b22] space-y-3">
+                <div class="flex items-center justify-between text-[11px] text-[#8b949e]">
+                    <span id="notesAutoSaveStatus" class="flex items-center gap-1.5 text-[#3fb950]">
+                        <span class="w-1.5 h-1.5 rounded-full bg-[#3fb950]"></span>
+                        <span>Saved locally</span>
+                    </span>
+                    <button id="clearNotesBtn" class="text-[#f85149] hover:underline hover:text-[#ff7b72] transition" title="Clear all notes">Clear All</button>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="copyAllNotesBtn" class="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white shadow transition active:scale-95">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                        <span>Copy Formatted Notes</span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="bg-[#161b22] border-t border-[#30363d] py-6 mt-12 text-center text-xs text-[#8b949e]">
-        <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div class="w-full max-w-[98%] 2xl:max-w-[96%] mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p>
                 <strong>All Repos</strong> &mdash; GitHub Repositories Manager & Explorer. Built with PHP, HTML5, Vanilla JavaScript, and Tailwind CSS.
             </p>
