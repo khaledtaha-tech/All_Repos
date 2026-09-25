@@ -46,80 +46,58 @@
             }
         };
     </script>
-    <!-- Immediate Theme Application to prevent FOUC -->
+    <!-- Immediate Theme Application to prevent FOUC (Default: GitHub Dark) -->
     <script>
+        var isTogglingTheme = false;
         function applyTheme(theme) {
-            var isDark = (theme === 'dark');
+            var isSoftBlue = (theme === 'soft-blue');
             var root = document.documentElement;
-            if (isDark) {
-                root.classList.add('theme-dark');
-                root.classList.remove('theme-custom');
+            if (isSoftBlue) {
+                root.classList.add('theme-soft-blue');
             } else {
-                root.classList.remove('theme-dark');
-                root.classList.add('theme-custom');
+                root.classList.remove('theme-soft-blue');
             }
             var iconDark = document.getElementById('themeIconDark');
             var iconLight = document.getElementById('themeIconLight');
             var text = document.getElementById('themeToggleText');
-            if (iconDark) iconDark.classList.toggle('hidden', isDark);
-            if (iconLight) iconLight.classList.toggle('hidden', !isDark);
-            if (text) text.textContent = isDark ? 'Dark' : 'Warm Theme';
+            if (iconDark) iconDark.classList.toggle('hidden', isSoftBlue);
+            if (iconLight) iconLight.classList.toggle('hidden', !isSoftBlue);
+            if (text) text.textContent = isSoftBlue ? 'Soft Blue' : 'Dark';
         }
 
-        var isTogglingTheme = false;
         function toggleTheme() {
             if (isTogglingTheme) return;
             isTogglingTheme = true;
             setTimeout(function() { isTogglingTheme = false; }, 150);
 
-            var isDark = document.documentElement.classList.contains('theme-dark');
-            var next = isDark ? 'custom' : 'dark';
+            var isCurrentlySoftBlue = document.documentElement.classList.contains('theme-soft-blue');
+            var next = isCurrentlySoftBlue ? 'dark' : 'soft-blue';
             try {
                 localStorage.setItem('all_repos_theme', next);
             } catch (e) {}
             applyTheme(next);
             if (window.showToast) {
-                window.showToast(next === 'dark' ? 'Dark Theme activated' : 'Warm Theme activated', 'info');
+                window.showToast(next === 'soft-blue' ? 'Soft Blue Slate theme activated' : 'Dark Theme activated', 'info');
             }
         }
 
-        // Apply theme immediately to prevent FOUC
+        // Apply theme immediately to prevent FOUC - default is strictly dark
         (function() {
             try {
                 var saved = localStorage.getItem('all_repos_theme');
-                var initial = (saved === 'dark') ? 'dark' : 'custom';
+                if (saved === 'custom') {
+                    localStorage.removeItem('all_repos_theme');
+                    saved = 'dark';
+                }
+                var initial = (saved === 'soft-blue') ? 'soft-blue' : 'dark';
                 applyTheme(initial);
             } catch (e) {
-                applyTheme('custom');
+                applyTheme('dark');
             }
         })();
     </script>
     <style>
-        /* ==========================================================================
-           Custom Palette Theme:
-             --text: #7b3061;
-             --background: #ebe1a9;
-             --primary: #4a3189;
-             --secondary: #62427a;
-             --accent: #b98990;
-           ========================================================================== */
-        :root {
-            --text: #7b3061;
-            --background: #ebe1a9;
-            --primary: #4a3189;
-            --secondary: #62427a;
-            --accent: #b98990;
-
-            --surface: #dfd495;
-            --surface-alt: #d5ca8a;
-            --surface-input: #f4edd4;
-            --border: rgba(98, 66, 122, 0.35);
-            --border-subtle: rgba(98, 66, 122, 0.2);
-            --text-muted: #62427a;
-            --accent-tint: rgba(185, 137, 144, 0.22);
-        }
-
-        /* Default scrollbar */
+        /* Custom scrollbar matching GitHub dark mode */
         ::-webkit-scrollbar {
             width: 8px;
             height: 8px;
@@ -144,186 +122,155 @@
             animation: skeletonPulse 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
 
-        /* Active Custom Theme (When not in Dark Mode) */
-        html:not(.theme-dark),
-        html.theme-custom,
-        html:not(.theme-dark) body,
-        html.theme-custom body {
-            background-color: var(--background) !important;
-            color: var(--text) !important;
+        /* ==========================================================================
+           Soft Blue / Slate Theme (Minimalist Dashboard Style)
+           Applied ONLY when html has .theme-soft-blue
+           Palette:
+             - Background: #F0F4F8 / #E8EEF5
+             - Cards/Surface: #DFE8F2 / #D5E2F0
+             - Borders: #BDCFE2
+             - Text: #1E293B
+             - Muted Text: #64748B
+             - Accents: #2563EB / #3B82F6
+           ========================================================================== */
+        html.theme-soft-blue,
+        html.theme-soft-blue body {
+            background-color: #F0F4F8 !important;
+            color: #1E293B !important;
         }
 
-        html:not(.theme-dark) header,
-        html.theme-custom header,
-        html:not(.theme-dark) footer,
-        html.theme-custom footer,
-        html:not(.theme-dark) #notesDrawerPanel,
-        html.theme-custom #notesDrawerPanel,
-        html:not(.theme-dark) #repoModal > div > div,
-        html.theme-custom #repoModal > div > div {
-            background-color: var(--surface) !important;
-            border-color: var(--border) !important;
-            color: var(--text) !important;
+        html.theme-soft-blue header,
+        html.theme-soft-blue footer,
+        html.theme-soft-blue #notesDrawerPanel,
+        html.theme-soft-blue #repoModal > div > div {
+            background-color: #DFE8F2 !important;
+            border-color: #BDCFE2 !important;
+            color: #1E293B !important;
         }
 
-        html:not(.theme-dark) [class*="bg-[#161b22]"],
-        html.theme-custom [class*="bg-[#161b22]"] {
-            background-color: var(--surface) !important;
-            border-color: var(--border) !important;
-            color: var(--text) !important;
+        html.theme-soft-blue [class*="bg-[#161b22]"] {
+            background-color: #DFE8F2 !important;
+            border-color: #BDCFE2 !important;
+            color: #1E293B !important;
         }
 
-        html:not(.theme-dark) [class*="bg-[#0d1117]"],
-        html.theme-custom [class*="bg-[#0d1117]"] {
-            background-color: var(--background) !important;
-            border-color: var(--border) !important;
-            color: var(--text) !important;
+        html.theme-soft-blue [class*="bg-[#0d1117]"] {
+            background-color: #E8EEF5 !important;
+            border-color: #BDCFE2 !important;
+            color: #1E293B !important;
         }
 
-        html:not(.theme-dark) [class*="bg-[#21262d]"],
-        html.theme-custom [class*="bg-[#21262d]"] {
-            background-color: var(--surface-alt) !important;
-            border-color: var(--border) !important;
-            color: var(--text) !important;
+        html.theme-soft-blue [class*="bg-[#21262d]"] {
+            background-color: #D5E2F0 !important;
+            border-color: #BDCFE2 !important;
+            color: #1E293B !important;
         }
 
-        html:not(.theme-dark) [class*="hover:bg-[#30363d]"]:hover,
-        html.theme-custom [class*="hover:bg-[#30363d]"]:hover,
-        html:not(.theme-dark) [class*="hover:bg-[#21262d]"]:hover,
-        html.theme-custom [class*="hover:bg-[#21262d]"]:hover {
-            background-color: var(--accent-tint) !important;
-            color: var(--primary) !important;
+        html.theme-soft-blue [class*="hover:bg-[#30363d]"]:hover,
+        html.theme-soft-blue [class*="hover:bg-[#21262d]"]:hover {
+            background-color: #C5D5E8 !important;
+            color: #0F172A !important;
         }
 
-        html:not(.theme-dark) tr:hover,
-        html.theme-custom tr:hover,
-        html:not(.theme-dark) [class*="hover:bg-[#161b22]/70"]:hover,
-        html.theme-custom [class*="hover:bg-[#161b22]/70"]:hover {
-            background-color: var(--accent-tint) !important;
+        html.theme-soft-blue tr:hover,
+        html.theme-soft-blue [class*="hover:bg-[#161b22]/70"]:hover {
+            background-color: rgba(213, 226, 240, 0.7) !important;
         }
 
-        html:not(.theme-dark) [class*="border-[#30363d]"],
-        html.theme-custom [class*="border-[#30363d]"],
-        html:not(.theme-dark) [class*="border-[#21262d]"],
-        html.theme-custom [class*="border-[#21262d]"],
-        html:not(.theme-dark) tr,
-        html.theme-custom tr {
-            border-color: var(--border) !important;
+        html.theme-soft-blue [class*="border-[#30363d]"],
+        html.theme-soft-blue [class*="border-[#21262d]"],
+        html.theme-soft-blue tr {
+            border-color: #BDCFE2 !important;
         }
 
-        html:not(.theme-dark) [class*="text-[#e6edf3]"],
-        html.theme-custom [class*="text-[#e6edf3]"],
-        html:not(.theme-dark) .text-white,
-        html.theme-custom .text-white {
-            color: var(--text) !important;
+        html.theme-soft-blue [class*="text-[#e6edf3]"],
+        html.theme-soft-blue .text-white {
+            color: #1E293B !important;
         }
 
-        html:not(.theme-dark) [class*="text-[#c9d1d9]"],
-        html.theme-custom [class*="text-[#c9d1d9]"] {
-            color: var(--secondary) !important;
+        html.theme-soft-blue [class*="text-[#c9d1d9]"] {
+            color: #334155 !important;
         }
 
-        html:not(.theme-dark) [class*="text-[#8b949e]"],
-        html.theme-custom [class*="text-[#8b949e]"] {
-            color: var(--text-muted) !important;
+        html.theme-soft-blue [class*="text-[#8b949e]"] {
+            color: #64748B !important;
         }
 
-        html:not(.theme-dark) [class*="text-[#6e7681]"],
-        html.theme-custom [class*="text-[#6e7681]"] {
-            color: var(--secondary) !important;
+        html.theme-soft-blue [class*="text-[#6e7681]"] {
+            color: #94A3B8 !important;
         }
 
-        html:not(.theme-dark) [class*="text-[#58a6ff]"],
-        html.theme-custom [class*="text-[#58a6ff]"],
-        html:not(.theme-dark) [class*="text-[#79c0ff]"],
-        html.theme-custom [class*="text-[#79c0ff]"] {
-            color: var(--primary) !important;
+        html.theme-soft-blue [class*="text-[#58a6ff]"],
+        html.theme-soft-blue [class*="text-[#79c0ff]"] {
+            color: #2563EB !important;
         }
 
-        html:not(.theme-dark) a,
-        html.theme-custom a {
-            color: var(--primary);
+        html.theme-soft-blue a {
+            color: #2563EB;
         }
 
-        html:not(.theme-dark) input,
-        html.theme-custom input,
-        html:not(.theme-dark) textarea,
-        html.theme-custom textarea,
-        html:not(.theme-dark) select,
-        html.theme-custom select {
-            background-color: var(--surface-input) !important;
-            border-color: var(--border) !important;
-            color: var(--text) !important;
+        html.theme-soft-blue input,
+        html.theme-soft-blue textarea,
+        html.theme-soft-blue select {
+            background-color: #E8EEF5 !important;
+            border-color: #BDCFE2 !important;
+            color: #1E293B !important;
         }
 
-        html:not(.theme-dark) input::placeholder,
-        html.theme-custom input::placeholder,
-        html:not(.theme-dark) textarea::placeholder,
-        html.theme-custom textarea::placeholder {
-            color: var(--accent) !important;
+        html.theme-soft-blue input::placeholder,
+        html.theme-soft-blue textarea::placeholder {
+            color: #94A3B8 !important;
         }
 
-        html:not(.theme-dark) input:focus,
-        html.theme-custom input:focus,
-        html:not(.theme-dark) textarea:focus,
-        html.theme-custom textarea:focus,
-        html:not(.theme-dark) select:focus,
-        html.theme-custom select:focus {
-            border-color: var(--primary) !important;
-            box-shadow: 0 0 0 1px var(--primary) !important;
+        html.theme-soft-blue input:focus,
+        html.theme-soft-blue textarea:focus,
+        html.theme-soft-blue select:focus {
+            border-color: #2563EB !important;
+            box-shadow: 0 0 0 1px #2563EB !important;
             outline: none !important;
         }
 
-        html:not(.theme-dark) option,
-        html.theme-custom option {
-            background-color: var(--surface) !important;
-            color: var(--text) !important;
+        html.theme-soft-blue option {
+            background-color: #DFE8F2 !important;
+            color: #1E293B !important;
         }
 
-        html:not(.theme-dark) [class*="bg-[#1b2533]"],
-        html.theme-custom [class*="bg-[#1b2533]"] {
-            background-color: rgba(74, 49, 137, 0.15) !important;
-            border-color: var(--border) !important;
-            color: var(--primary) !important;
+        html.theme-soft-blue [class*="bg-[#1b2533]"] {
+            background-color: #DBEAFE !important;
+            border-color: #BFDBFE !important;
+            color: #1D4ED8 !important;
         }
 
-        html:not(.theme-dark) [class*="bg-[#382352]"],
-        html.theme-custom [class*="bg-[#382352]"] {
-            background-color: rgba(98, 66, 122, 0.18) !important;
-            border-color: var(--border) !important;
-            color: var(--secondary) !important;
+        html.theme-soft-blue [class*="bg-[#382352]"] {
+            background-color: #F3E8FF !important;
+            border-color: #E9D5FF !important;
+            color: #7E22CE !important;
         }
 
-        html:not(.theme-dark) [class*="bg-[#1f2937]"],
-        html.theme-custom [class*="bg-[#1f2937]"] {
-            background-color: rgba(185, 137, 144, 0.25) !important;
-            color: var(--primary) !important;
+        html.theme-soft-blue [class*="bg-[#1f2937]"] {
+            background-color: #E2E8F0 !important;
+            color: #2563EB !important;
         }
 
-        html:not(.theme-dark) #notesDrawerBackdrop,
-        html.theme-custom #notesDrawerBackdrop {
-            background-color: rgba(74, 49, 137, 0.35) !important;
+        html.theme-soft-blue #notesDrawerBackdrop {
+            background-color: rgba(15, 23, 42, 0.4) !important;
         }
 
-        html:not(.theme-dark) #repoModal,
-        html.theme-custom #repoModal {
-            background-color: rgba(74, 49, 137, 0.45) !important;
+        html.theme-soft-blue #repoModal {
+            background-color: rgba(15, 23, 42, 0.5) !important;
         }
 
-        html:not(.theme-dark) ::-webkit-scrollbar-track,
-        html.theme-custom ::-webkit-scrollbar-track {
-            background: var(--background);
+        html.theme-soft-blue ::-webkit-scrollbar-track {
+            background: #F0F4F8;
         }
 
-        html:not(.theme-dark) ::-webkit-scrollbar-thumb,
-        html.theme-custom ::-webkit-scrollbar-thumb {
-            background: var(--accent);
+        html.theme-soft-blue ::-webkit-scrollbar-thumb {
+            background: #BDCFE2;
             border-radius: 4px;
         }
 
-        html:not(.theme-dark) ::-webkit-scrollbar-thumb:hover,
-        html.theme-custom ::-webkit-scrollbar-thumb:hover {
-            background: var(--secondary);
+        html.theme-soft-blue ::-webkit-scrollbar-thumb:hover {
+            background: #94A3B8;
         }
     </style>
 </head>
@@ -371,16 +318,16 @@
                     <span class="hidden sm:inline">Refresh</span>
                 </button>
 
-                <!-- Custom Warm / Dark Theme Toggle Button -->
+                <!-- Soft Blue Slate / Dark Theme Toggle Button -->
                 <button id="themeToggleBtn" 
                         type="button"
                         onclick="toggleTheme()"
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white border border-[#30363d] hover:border-[#58a6ff]/60 transition active:scale-95 shadow-sm"
-                        title="Toggle between Custom Warm Theme and Dark Mode"
+                        title="Toggle between Dark Theme and Soft Blue Slate Theme"
                         aria-label="Toggle Theme">
-                    <svg id="themeIconDark" class="w-3.5 h-3.5 text-[#e3b341] hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                    <svg id="themeIconLight" class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-                    <span id="themeToggleText" class="hidden sm:inline">Theme</span>
+                    <svg id="themeIconDark" class="w-3.5 h-3.5 text-[#e3b341]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    <svg id="themeIconLight" class="w-3.5 h-3.5 text-[#58a6ff] hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                    <span id="themeToggleText" class="hidden sm:inline">Dark</span>
                 </button>
 
                 <!-- Work Notes & Progress Drawer Trigger -->

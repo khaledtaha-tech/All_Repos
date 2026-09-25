@@ -844,59 +844,61 @@
         'Unspecified': '#6e7681',
     };
 
-    // Custom Palette / Dark Theme Management
+    // Soft Blue Slate / Dark Theme Management
     const THEME_STORAGE_KEY = 'all_repos_theme';
     let isTogglingTheme = false;
 
     /**
-     * Apply active theme ('dark' or 'custom')
+     * Apply active theme ('dark' or 'soft-blue')
      */
     function applyTheme(theme) {
-        const isDark = (theme === 'dark');
+        const isSoftBlue = (theme === 'soft-blue');
         const root = document.documentElement;
-        if (isDark) {
-            root.classList.remove('theme-custom');
-            root.classList.add('theme-dark');
-            if (elements.themeIconDark) elements.themeIconDark.classList.toggle('hidden', true);
-            if (elements.themeIconLight) elements.themeIconLight.classList.toggle('hidden', false);
-            if (elements.themeToggleText) elements.themeToggleText.textContent = 'Dark';
+        if (isSoftBlue) {
+            root.classList.add('theme-soft-blue');
+            if (elements.themeIconDark) elements.themeIconDark.classList.add('hidden');
+            if (elements.themeIconLight) elements.themeIconLight.classList.remove('hidden');
+            if (elements.themeToggleText) elements.themeToggleText.textContent = 'Soft Blue';
         } else {
-            root.classList.remove('theme-dark');
-            root.classList.add('theme-custom');
-            if (elements.themeIconDark) elements.themeIconDark.classList.toggle('hidden', false);
-            if (elements.themeIconLight) elements.themeIconLight.classList.toggle('hidden', true);
-            if (elements.themeToggleText) elements.themeToggleText.textContent = 'Warm Theme';
+            root.classList.remove('theme-soft-blue');
+            if (elements.themeIconDark) elements.themeIconDark.classList.remove('hidden');
+            if (elements.themeIconLight) elements.themeIconLight.classList.add('hidden');
+            if (elements.themeToggleText) elements.themeToggleText.textContent = 'Dark';
         }
     }
 
     /**
-     * Toggle Theme between Custom Warm Palette and Dark Mode
+     * Toggle Theme between Dark and Soft Blue Slate
      */
     function toggleTheme() {
         if (isTogglingTheme) return;
         isTogglingTheme = true;
         setTimeout(() => { isTogglingTheme = false; }, 150);
 
-        const isCurrentlyDark = document.documentElement.classList.contains('theme-dark');
-        const nextTheme = isCurrentlyDark ? 'custom' : 'dark';
+        const isCurrentlySoftBlue = document.documentElement.classList.contains('theme-soft-blue');
+        const nextTheme = isCurrentlySoftBlue ? 'dark' : 'soft-blue';
         try {
             localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
         } catch (e) {
             console.error('Failed to save theme preference:', e);
         }
         applyTheme(nextTheme);
-        showToast(nextTheme === 'dark' ? 'Dark Theme activated' : 'Warm Theme activated', 'info');
+        showToast(nextTheme === 'soft-blue' ? 'Soft Blue Slate theme activated' : 'Dark Theme activated', 'info');
     }
 
     /**
-     * Initialize Theme on page load
+     * Initialize Theme on page load (Default is strictly Dark)
      */
     function initTheme() {
-        let savedTheme = 'custom';
+        let savedTheme = 'dark';
         try {
-            savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || 'custom';
+            savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || 'dark';
+            if (savedTheme === 'custom') {
+                localStorage.removeItem(THEME_STORAGE_KEY);
+                savedTheme = 'dark';
+            }
         } catch (e) {
-            savedTheme = 'custom';
+            savedTheme = 'dark';
         }
         applyTheme(savedTheme);
     }
@@ -2146,7 +2148,7 @@
             elements.clearNotesBtn.addEventListener('click', clearAllNotes);
         }
 
-        // Custom Warm / Dark Theme toggle (only bind if not already handled by inline onclick)
+        // Soft Blue Slate / Dark Theme toggle (only bind if not already handled by inline onclick)
         if (elements.themeToggleBtn && !elements.themeToggleBtn.getAttribute('onclick')) {
             elements.themeToggleBtn.addEventListener('click', toggleTheme);
         }
