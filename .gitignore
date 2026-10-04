@@ -6,6 +6,7 @@ config.php
 
 # Local Cache & Storage
 cache/
+data/
 *.cache
 *.tmp
 

@@ -27,6 +27,12 @@
         selectedRepo: null,
         inspections: {},
         inspectingRepos: new Set(),
+        metadata: {
+            database: {},
+            auth: {},
+            ai_tool: {},
+            prompt_tool: {}
+        },
     };
 
     // Automated Architecture Detection Persistence Key
@@ -126,20 +132,28 @@
         const techCells = document.querySelectorAll(`td[data-cell-tech="${CSS.escape(repoName)}"]`);
         techCells.forEach(cell => { cell.innerHTML = renderTechStackCell(repo); });
 
-        const dbCells = document.querySelectorAll(`td[data-cell-db="${CSS.escape(repoName)}"]`);
-        dbCells.forEach(cell => { cell.innerHTML = renderDatabaseCell(repo); });
-
-        const authCells = document.querySelectorAll(`td[data-cell-auth="${CSS.escape(repoName)}"]`);
-        authCells.forEach(cell => { cell.innerHTML = renderAuthCell(repo); });
-
         const cardTechs = document.querySelectorAll(`div[data-card-tech="${CSS.escape(repoName)}"]`);
         cardTechs.forEach(el => { el.innerHTML = renderTechStackCell(repo); });
 
-        const cardDbs = document.querySelectorAll(`div[data-card-db="${CSS.escape(repoName)}"]`);
-        cardDbs.forEach(el => { el.innerHTML = renderDatabaseCell(repo); });
+        // Only update database cells if no user/saved metadata exists yet
+        const hasManualDb = getMetadataValue(state.metadata.database, repo) !== undefined;
+        if (!hasManualDb) {
+            const dbCells = document.querySelectorAll(`td[data-cell-db="${CSS.escape(repoName)}"]`);
+            dbCells.forEach(cell => { cell.innerHTML = renderDatabaseCell(repo); });
 
-        const cardAuths = document.querySelectorAll(`div[data-card-auth="${CSS.escape(repoName)}"]`);
-        cardAuths.forEach(el => { el.innerHTML = renderAuthCell(repo); });
+            const cardDbs = document.querySelectorAll(`div[data-card-db="${CSS.escape(repoName)}"]`);
+            cardDbs.forEach(el => { el.innerHTML = renderDatabaseCell(repo); });
+        }
+
+        // Only update auth cells if no user/saved metadata exists yet
+        const hasManualAuth = getMetadataValue(state.metadata.auth, repo) !== undefined;
+        if (!hasManualAuth) {
+            const authCells = document.querySelectorAll(`td[data-cell-auth="${CSS.escape(repoName)}"]`);
+            authCells.forEach(cell => { cell.innerHTML = renderAuthCell(repo); });
+
+            const cardAuths = document.querySelectorAll(`div[data-card-auth="${CSS.escape(repoName)}"]`);
+            cardAuths.forEach(el => { el.innerHTML = renderAuthCell(repo); });
+        }
     }
 
     /**
@@ -173,8 +187,16 @@
         return `<span class="text-[#8b949e]/60 font-mono text-xs select-none pl-1" title="Language fallback">${escapeHtml(fallback)}</span>`;
     }
 
-    // Database Tracking Predefined Choices (Lightweight localStorage)
+    // =========================================================================
+    // Persistent Repository Metadata (Database, Auth, AI Dev, Prompt Explainer)
+    // Hybrid Architecture: Memory State + LocalStorage + Server File (api.php)
+    // =========================================================================
+
     const DB_TRACKER_STORAGE_KEY = 'all_repos_db_tracker';
+    const AUTH_TRACKER_STORAGE_KEY = 'all_repos_auth_tracker';
+    const AI_TOOLS_STORAGE_KEY = 'all_repos_ai_tools';
+    const PROMPT_TOOLS_STORAGE_KEY = 'all_repos_prompt_tools';
+
     const DB_TRACKER_CHOICES = [
         { value: 'none', label: 'None' },
         { value: 'MySQL', label: 'MySQL' },
@@ -184,8 +206,25 @@
         { value: 'Other', label: 'Other' },
     ];
 
+    const AI_TOOL_CHOICES = [
+        { value: 'none', label: 'Unassigned / None' },
+        { value: 'AntiGravity', label: 'AntiGravity' },
+        { value: 'ChatGPT', label: 'ChatGPT' },
+        { value: 'Cursor', label: 'Cursor' },
+        { value: 'Claude', label: 'Claude' },
+        { value: 'Other', label: 'Other' },
+    ];
+
+    const PROMPT_TOOL_CHOICES = [
+        { value: 'none', label: 'None' },
+        { value: 'Gemini', label: 'Gemini' },
+        { value: 'ChatGPT', label: 'ChatGPT' },
+        { value: 'Claude', label: 'Claude' },
+        { value: 'Other', label: 'Other' },
+    ];
+
     /**
-     * Retrieve Database tracker map from localStorage
+     * Retrieve local dictionaries from browser localStorage
      */
     function getDbTrackerMap() {
         try {
@@ -196,17 +235,217 @@
         }
     }
 
+    function getAuthTrackerMap() {
+        try {
+            const stored = localStorage.getItem(AUTH_TRACKER_STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function getAiToolsMap() {
+        try {
+            const stored = localStorage.getItem(AI_TOOLS_STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function getPromptToolsMap() {
+        try {
+            const stored = localStorage.getItem(PROMPT_TOOLS_STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    /**
+     * Save current state.metadata to browser localStorage
+     */
+    function saveAllMetadataToLocalStorage() {
+        try {
+            localStorage.setItem(DB_TRACKER_STORAGE_KEY, JSON.stringify(state.metadata.database || {}));
+            localStorage.setItem(AUTH_TRACKER_STORAGE_KEY, JSON.stringify(state.metadata.auth || {}));
+            localStorage.setItem(AI_TOOLS_STORAGE_KEY, JSON.stringify(state.metadata.ai_tool || {}));
+            localStorage.setItem(PROMPT_TOOLS_STORAGE_KEY, JSON.stringify(state.metadata.prompt_tool || {}));
+        } catch (e) {
+            console.error('Failed to save metadata to localStorage:', e);
+        }
+    }
+
+    /**
+     * Load initial state.metadata from localStorage into memory
+     */
+    function loadLocalMetadata() {
+        state.metadata.database = getDbTrackerMap();
+        state.metadata.auth = getAuthTrackerMap();
+        state.metadata.ai_tool = getAiToolsMap();
+        state.metadata.prompt_tool = getPromptToolsMap();
+    }
+
+    /**
+     * Synchronize and hydrate metadata from server response and localStorage
+     */
+    function hydrateMetadata(serverMetadata) {
+        if (!serverMetadata || typeof serverMetadata !== 'object') {
+            serverMetadata = {};
+        }
+
+        const localDb = getDbTrackerMap();
+        const localAuth = getAuthTrackerMap();
+        const localAi = getAiToolsMap();
+        const localPrompt = getPromptToolsMap();
+
+        const sDb = (serverMetadata && serverMetadata.database) || {};
+        const sAuth = (serverMetadata && serverMetadata.auth) || {};
+        const sAi = (serverMetadata && serverMetadata.ai_tool) || {};
+        const sPrompt = (serverMetadata && serverMetadata.prompt_tool) || {};
+
+        // Merge: combine local and server, preserving all explicit entries
+        state.metadata.database = { ...localDb, ...sDb };
+        state.metadata.auth = { ...localAuth, ...sAuth };
+        state.metadata.ai_tool = { ...localAi, ...sAi };
+        state.metadata.prompt_tool = { ...localPrompt, ...sPrompt };
+
+        // Also check if any repository entity from API has embedded user_metadata
+        if (Array.isArray(state.repositories)) {
+            state.repositories.forEach(repo => {
+                if (repo && repo.user_metadata) {
+                    const name = repo.name;
+                    const id = repo.id ? String(repo.id) : null;
+                    if (repo.user_metadata.database !== null && repo.user_metadata.database !== undefined) {
+                        if (state.metadata.database[name] === undefined) state.metadata.database[name] = repo.user_metadata.database;
+                        if (id && state.metadata.database[id] === undefined) state.metadata.database[id] = repo.user_metadata.database;
+                    }
+                    if (repo.user_metadata.auth !== null && repo.user_metadata.auth !== undefined) {
+                        if (state.metadata.auth[name] === undefined) state.metadata.auth[name] = repo.user_metadata.auth;
+                        if (id && state.metadata.auth[id] === undefined) state.metadata.auth[id] = repo.user_metadata.auth;
+                    }
+                    if (repo.user_metadata.ai_tool !== null && repo.user_metadata.ai_tool !== undefined) {
+                        if (state.metadata.ai_tool[name] === undefined) state.metadata.ai_tool[name] = repo.user_metadata.ai_tool;
+                        if (id && state.metadata.ai_tool[id] === undefined) state.metadata.ai_tool[id] = repo.user_metadata.ai_tool;
+                    }
+                    if (repo.user_metadata.prompt_tool !== null && repo.user_metadata.prompt_tool !== undefined) {
+                        if (state.metadata.prompt_tool[name] === undefined) state.metadata.prompt_tool[name] = repo.user_metadata.prompt_tool;
+                        if (id && state.metadata.prompt_tool[id] === undefined) state.metadata.prompt_tool[id] = repo.user_metadata.prompt_tool;
+                    }
+                }
+            });
+        }
+
+        // Save unified merged state back to localStorage
+        saveAllMetadataToLocalStorage();
+
+        // Check if client had local selections that the server file was missing
+        let hasUnsyncedKeys = false;
+        ['database', 'auth', 'ai_tool', 'prompt_tool'].forEach(field => {
+            const local = field === 'database' ? localDb : (field === 'auth' ? localAuth : (field === 'ai_tool' ? localAi : localPrompt));
+            const server = field === 'database' ? sDb : (field === 'auth' ? sAuth : (field === 'ai_tool' ? sAi : sPrompt));
+            for (const k in local) {
+                if (local[k] !== undefined && server[k] === undefined) {
+                    hasUnsyncedKeys = true;
+                    break;
+                }
+            }
+        });
+
+        if (hasUnsyncedKeys) {
+            syncMetadataBatchToServer(state.metadata);
+        }
+    }
+
+    /**
+     * Dispatch background update for a single metadata field to api.php
+     */
+    async function saveMetadataToServer(repoName, field, value, repoId) {
+        try {
+            await fetch('api.php?action=metadata', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    repo: repoName,
+                    repo_id: repoId || null,
+                    field: field,
+                    value: value
+                })
+            });
+        } catch (e) {
+            console.warn(`Failed to sync metadata for "${repoName}" to server:`, e);
+        }
+    }
+
+    /**
+     * Dispatch background batch metadata update to api.php
+     */
+    async function syncMetadataBatchToServer(allMetadata) {
+        try {
+            await fetch('api.php?action=metadata', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    batch: true,
+                    metadata: allMetadata
+                })
+            });
+        } catch (e) {
+            console.warn('Failed to batch sync metadata to server:', e);
+        }
+    }
+
+    /**
+     * Uniform lookup across repository name, numeric ID, and full name
+     */
+    function getMetadataValue(map, repo) {
+        if (!map || typeof map !== 'object' || !repo) return undefined;
+        const nameKey = typeof repo === 'string' ? repo.trim() : (repo.name ? String(repo.name).trim() : '');
+        const idKey = (typeof repo === 'object' && repo && repo.id) ? String(repo.id) : '';
+        const fullNameKey = (typeof repo === 'object' && repo && repo.full_name) ? String(repo.full_name).trim() : '';
+
+        if (nameKey && map[nameKey] !== undefined) return map[nameKey];
+        if (idKey && map[idKey] !== undefined) return map[idKey];
+        if (fullNameKey && map[fullNameKey] !== undefined) return map[fullNameKey];
+        return undefined;
+    }
+
+    /**
+     * Set a metadata field uniformly in state, localStorage, and server file
+     */
+    function setMetadataField(field, repoName, value, repoId) {
+        if (!state.metadata[field]) {
+            state.metadata[field] = {};
+        }
+
+        state.metadata[field][repoName] = value;
+        if (repoId) {
+            state.metadata[field][String(repoId)] = value;
+        }
+
+        saveAllMetadataToLocalStorage();
+        saveMetadataToServer(repoName, field, value, repoId);
+    }
+
     /**
      * Retrieve assigned database for a repository (by name or ID)
      */
     function getRepoDbTracker(repo) {
         if (!repo) return 'none';
-        const map = getDbTrackerMap();
-        if (map[repo.name]) return map[repo.name];
-        if (repo.id && map[String(repo.id)]) return map[String(repo.id)];
+        const val = getMetadataValue(state.metadata.database, repo);
+        if (val !== undefined && val !== null) {
+            return val;
+        }
 
-        // Intelligent initial fallback from cached inspection if present
-        const inspection = state.inspections[repo.name] || repo.inspection;
+        // Intelligent initial fallback from cached inspection if present and unassigned
+        const repoName = typeof repo === 'string' ? repo : repo.name;
+        const inspection = (repoName && state.inspections[repoName]) || (typeof repo === 'object' && repo ? repo.inspection : null);
         if (inspection && inspection.database && inspection.database.detected) {
             const type = (inspection.database.type || '').toLowerCase();
             if (type.includes('mysql') || type.includes('mariadb')) return 'MySQL';
@@ -219,34 +458,33 @@
     }
 
     /**
-     * Update Database tracker for a repository and persist to localStorage
+     * Update Database tracker for a repository and persist to localStorage & server
      */
     function setRepoDbTracker(repoName, dbValue, repoId) {
         try {
-            const map = getDbTrackerMap();
-            if (dbValue === 'none') {
-                delete map[repoName];
-                if (repoId) delete map[String(repoId)];
-            } else {
-                map[repoName] = dbValue;
-                if (repoId) map[String(repoId)] = dbValue;
-            }
-            localStorage.setItem(DB_TRACKER_STORAGE_KEY, JSON.stringify(map));
+            setMetadataField('database', repoName, dbValue, repoId);
 
             const choice = DB_TRACKER_CHOICES.find(c => c.value === dbValue);
             const label = choice ? choice.label : dbValue;
             showToast(`Database for "${repoName}" updated to ${label}`, 'success');
 
-            // Sync all matching select elements across views
-            const selects = document.querySelectorAll(`select[data-repo-db-name="${CSS.escape(repoName)}"]`);
-            selects.forEach(sel => {
-                sel.value = dbValue;
-                updateDbSelectStyle(sel, dbValue);
-            });
+            syncDbSelectsInDOM(repoName, dbValue, repoId);
         } catch (e) {
-            console.error('Failed to save database tracker to localStorage:', e);
+            console.error('Failed to save database tracker:', e);
             showToast('Failed to save database selection.', 'error');
         }
+    }
+
+    /**
+     * Sync Database select element styles across list, grid, and modal
+     */
+    function syncDbSelectsInDOM(repoName, dbValue, repoId) {
+        const selector = `select[data-repo-db-name="${CSS.escape(repoName)}"]` + (repoId ? `, select[data-repo-db-id="${CSS.escape(String(repoId))}"]` : '');
+        const selects = document.querySelectorAll(selector);
+        selects.forEach(sel => {
+            sel.value = dbValue;
+            updateDbSelectStyle(sel, dbValue);
+        });
     }
 
     /**
@@ -286,6 +524,7 @@
 
         return `
             <select data-repo-db-name="${repoNameEsc}" 
+                    data-repo-db-id="${repoId}" 
                     onchange="window.setRepoDbTracker('${repoNameEsc}', this.value, ${repoId})" 
                     class="${styleClasses}">
                 ${DB_TRACKER_CHOICES.map(c => `
@@ -297,32 +536,19 @@
         `;
     }
 
-    // Auth / Login Tracking Predefined Choices & Toggle (Lightweight localStorage)
-    const AUTH_TRACKER_STORAGE_KEY = 'all_repos_auth_tracker';
-
-    /**
-     * Retrieve Auth tracker map from localStorage
-     */
-    function getAuthTrackerMap() {
-        try {
-            const stored = localStorage.getItem(AUTH_TRACKER_STORAGE_KEY);
-            return stored ? JSON.parse(stored) : {};
-        } catch (e) {
-            return {};
-        }
-    }
-
     /**
      * Retrieve assigned Auth status for a repository ('None', 'Done', 'In Progress')
      */
     function getRepoAuthStatus(repo) {
         if (!repo) return 'None';
-        const map = getAuthTrackerMap();
-        if (map[repo.name]) return map[repo.name];
-        if (repo.id && map[String(repo.id)]) return map[String(repo.id)];
+        const val = getMetadataValue(state.metadata.auth, repo);
+        if (val !== undefined && val !== null) {
+            return val;
+        }
 
-        // Intelligent initial fallback from cached inspection if present
-        const inspection = state.inspections[repo.name] || repo.inspection;
+        // Intelligent initial fallback from cached inspection if present and unassigned
+        const repoName = typeof repo === 'string' ? repo : repo.name;
+        const inspection = (repoName && state.inspections[repoName]) || (typeof repo === 'object' && repo ? repo.inspection : null);
         if (inspection && inspection.auth && inspection.auth.detected) {
             return 'Done';
         }
@@ -334,35 +560,33 @@
      */
     function toggleRepoAuthStatus(repoName, repoId) {
         try {
-            const map = getAuthTrackerMap();
-            const current = map[repoName] || (repoId && map[String(repoId)]) || 'None';
+            const current = getRepoAuthStatus(repoName);
             let next = 'In Progress';
             if (current === 'None') next = 'In Progress';
             else if (current === 'In Progress') next = 'Done';
             else if (current === 'Done') next = 'None';
 
-            if (next === 'None') {
-                delete map[repoName];
-                if (repoId) delete map[String(repoId)];
-            } else {
-                map[repoName] = next;
-                if (repoId) map[String(repoId)] = next;
-            }
-            localStorage.setItem(AUTH_TRACKER_STORAGE_KEY, JSON.stringify(map));
-
+            setMetadataField('auth', repoName, next, repoId);
             showToast(`Auth status for "${repoName}": ${next}`, 'success');
 
-            // Sync all matching elements across list and grid views
-            const buttons = document.querySelectorAll(`button[data-auth-tracker="${CSS.escape(repoName)}"]`);
-            buttons.forEach(btn => {
-                btn.className = getAuthStatusBadgeClasses(next);
-                btn.innerHTML = buildAuthStatusBadgeInnerHtml(next);
-                btn.title = `Auth / Login status: ${next} (Click to toggle: None → In Progress → Done)`;
-            });
+            syncAuthButtonsInDOM(repoName, next, repoId);
         } catch (e) {
             console.error('Failed to toggle auth status:', e);
             showToast('Failed to update auth status.', 'error');
         }
+    }
+
+    /**
+     * Sync Auth buttons in DOM across list, grid, and modal
+     */
+    function syncAuthButtonsInDOM(repoName, status, repoId) {
+        const selector = `button[data-auth-tracker="${CSS.escape(repoName)}"]` + (repoId ? `, button[data-auth-id="${CSS.escape(String(repoId))}"]` : '');
+        const buttons = document.querySelectorAll(selector);
+        buttons.forEach(btn => {
+            btn.className = getAuthStatusBadgeClasses(status);
+            btn.innerHTML = buildAuthStatusBadgeInnerHtml(status);
+            btn.title = `Auth / Login status: ${status} (Click to toggle: None → In Progress → Done)`;
+        });
     }
 
     /**
@@ -413,6 +637,7 @@
         return `
             <button type="button" 
                     data-auth-tracker="${repoNameEsc}" 
+                    data-auth-id="${repoId}" 
                     onclick="window.toggleRepoAuthStatus('${repoNameEsc}', ${repoId})" 
                     class="${classes}" 
                     title="Auth / Login status: ${status} (Click to toggle: None → In Progress → Done)">
@@ -424,17 +649,6 @@
     // Retain compatibility aliases
     function renderDatabaseCell(repo) { return buildDbSelectHtml(repo); }
     function renderAuthCell(repo) { return buildAuthStatusToggleHtml(repo); }
-
-    // AI Dev / Assistant Predefined Choices
-    const AI_TOOLS_STORAGE_KEY = 'all_repos_ai_tools';
-    const AI_TOOL_CHOICES = [
-        { value: 'none', label: 'Unassigned / None' },
-        { value: 'AntiGravity', label: 'AntiGravity' },
-        { value: 'ChatGPT', label: 'ChatGPT' },
-        { value: 'Cursor', label: 'Cursor' },
-        { value: 'Claude', label: 'Claude' },
-        { value: 'Other', label: 'Other' },
-    ];
 
     /**
      * Clean and validate a live website URL from repo.homepage
@@ -453,55 +667,42 @@
     }
 
     /**
-     * Get stored AI Tools dictionary from localStorage
-     */
-    function getAiToolsMap() {
-        try {
-            const stored = localStorage.getItem(AI_TOOLS_STORAGE_KEY);
-            return stored ? JSON.parse(stored) : {};
-        } catch (e) {
-            return {};
-        }
-    }
-
-    /**
      * Retrieve AI tool assigned to a given repository (by name or ID)
      */
     function getRepoAiTool(repo) {
         if (!repo) return 'none';
-        const map = getAiToolsMap();
-        return map[repo.name] || (repo.id ? map[String(repo.id)] : null) || 'none';
+        const val = getMetadataValue(state.metadata.ai_tool, repo);
+        return (val !== undefined && val !== null) ? val : 'none';
     }
 
     /**
-     * Update AI tool assigned to a repository and persist to localStorage
+     * Update AI tool assigned to a repository and persist to localStorage & server
      */
     function setRepoAiTool(repoName, toolValue, repoId) {
         try {
-            const map = getAiToolsMap();
-            if (toolValue === 'none') {
-                delete map[repoName];
-                if (repoId) delete map[String(repoId)];
-            } else {
-                map[repoName] = toolValue;
-                if (repoId) map[String(repoId)] = toolValue;
-            }
-            localStorage.setItem(AI_TOOLS_STORAGE_KEY, JSON.stringify(map));
+            setMetadataField('ai_tool', repoName, toolValue, repoId);
 
             const choice = AI_TOOL_CHOICES.find(c => c.value === toolValue);
             const label = choice ? choice.label : toolValue;
             showToast(`AI Tool for "${repoName}" updated to ${label}`, 'success');
 
-            // Sync all matching select elements across views without interrupting user
-            const selects = document.querySelectorAll(`select[data-repo-name="${CSS.escape(repoName)}"]`);
-            selects.forEach(sel => {
-                sel.value = toolValue;
-                updateAiSelectStyle(sel, toolValue);
-            });
+            syncAiSelectsInDOM(repoName, toolValue, repoId);
         } catch (e) {
-            console.error('Failed to save AI tool to localStorage:', e);
+            console.error('Failed to save AI tool:', e);
             showToast('Failed to save AI tool selection.', 'error');
         }
+    }
+
+    /**
+     * Sync AI Tool select elements in DOM across views
+     */
+    function syncAiSelectsInDOM(repoName, toolValue, repoId) {
+        const selector = `select[data-repo-name="${CSS.escape(repoName)}"]` + (repoId ? `, select[data-repo-id="${CSS.escape(String(repoId))}"]` : '');
+        const selects = document.querySelectorAll(selector);
+        selects.forEach(sel => {
+            sel.value = toolValue;
+            updateAiSelectStyle(sel, toolValue);
+        });
     }
 
     /**
@@ -541,6 +742,7 @@
 
         return `
             <select data-repo-name="${repoNameEsc}" 
+                    data-repo-id="${repoId}" 
                     onchange="window.setRepoAiTool('${repoNameEsc}', this.value, ${repoId})" 
                     class="${styleClasses}">
                 ${AI_TOOL_CHOICES.map(c => `
@@ -552,66 +754,43 @@
         `;
     }
 
-    // Prompt Engineer / Explainer Predefined Choices
-    const PROMPT_TOOLS_STORAGE_KEY = 'all_repos_prompt_tools';
-    const PROMPT_TOOL_CHOICES = [
-        { value: 'none', label: 'None' },
-        { value: 'Gemini', label: 'Gemini' },
-        { value: 'ChatGPT', label: 'ChatGPT' },
-        { value: 'Claude', label: 'Claude' },
-        { value: 'Other', label: 'Other' },
-    ];
-
-    /**
-     * Get stored Prompt Explainer dictionary from localStorage
-     */
-    function getPromptToolsMap() {
-        try {
-            const stored = localStorage.getItem(PROMPT_TOOLS_STORAGE_KEY);
-            return stored ? JSON.parse(stored) : {};
-        } catch (e) {
-            return {};
-        }
-    }
-
     /**
      * Retrieve Prompt Explainer tool assigned to a given repository (by name or ID)
      */
     function getRepoPromptTool(repo) {
         if (!repo) return 'none';
-        const map = getPromptToolsMap();
-        return map[repo.name] || (repo.id ? map[String(repo.id)] : null) || 'none';
+        const val = getMetadataValue(state.metadata.prompt_tool, repo);
+        return (val !== undefined && val !== null) ? val : 'none';
     }
 
     /**
-     * Update Prompt Explainer tool assigned to a repository and persist to localStorage
+     * Update Prompt Explainer tool assigned to a repository and persist to localStorage & server
      */
     function setRepoPromptTool(repoName, toolValue, repoId) {
         try {
-            const map = getPromptToolsMap();
-            if (toolValue === 'none') {
-                delete map[repoName];
-                if (repoId) delete map[String(repoId)];
-            } else {
-                map[repoName] = toolValue;
-                if (repoId) map[String(repoId)] = toolValue;
-            }
-            localStorage.setItem(PROMPT_TOOLS_STORAGE_KEY, JSON.stringify(map));
+            setMetadataField('prompt_tool', repoName, toolValue, repoId);
 
             const choice = PROMPT_TOOL_CHOICES.find(c => c.value === toolValue);
             const label = choice ? choice.label : toolValue;
             showToast(`Prompt / Explainer for "${repoName}" updated to ${label}`, 'success');
 
-            // Sync all matching select elements across views without interrupting user
-            const selects = document.querySelectorAll(`select[data-repo-prompt-name="${CSS.escape(repoName)}"]`);
-            selects.forEach(sel => {
-                sel.value = toolValue;
-                updatePromptSelectStyle(sel, toolValue);
-            });
+            syncPromptSelectsInDOM(repoName, toolValue, repoId);
         } catch (e) {
-            console.error('Failed to save prompt explainer to localStorage:', e);
+            console.error('Failed to save prompt explainer:', e);
             showToast('Failed to save prompt explainer selection.', 'error');
         }
+    }
+
+    /**
+     * Sync Prompt select elements in DOM across views
+     */
+    function syncPromptSelectsInDOM(repoName, toolValue, repoId) {
+        const selector = `select[data-repo-prompt-name="${CSS.escape(repoName)}"]` + (repoId ? `, select[data-repo-prompt-id="${CSS.escape(String(repoId))}"]` : '');
+        const selects = document.querySelectorAll(selector);
+        selects.forEach(sel => {
+            sel.value = toolValue;
+            updatePromptSelectStyle(sel, toolValue);
+        });
     }
 
     /**
@@ -648,6 +827,7 @@
 
         return `
             <select data-repo-prompt-name="${repoNameEsc}" 
+                    data-repo-prompt-id="${repoId}" 
                     onchange="window.setRepoPromptTool('${repoNameEsc}', this.value, ${repoId})" 
                     class="${styleClasses}">
                 ${PROMPT_TOOL_CHOICES.map(c => `
@@ -1150,6 +1330,9 @@
             state.rateLimit = data.rate_limit || null;
             state.lastUpdated = data.cached_at || new Date().toISOString();
 
+            // Synchronize and hydrate metadata from server and localStorage
+            hydrateMetadata(data.metadata || {});
+
             // Synchronize inspections from local cache & API responses
             const localInspections = getCachedInspections();
             state.inspections = { ...localInspections };
@@ -1160,8 +1343,6 @@
                 }
             });
             saveCachedInspections();
-
-            // Lightweight mode: relies on fast client-side localStorage trackers without heavy background API scans
 
             populateLanguageOptions();
             applyFiltersAndSort();
@@ -2260,6 +2441,7 @@
     // Initialize application
     function init() {
         initTheme();
+        loadLocalMetadata();
         setupEventListeners();
         loadNotes();
         fetchRepositories(false);

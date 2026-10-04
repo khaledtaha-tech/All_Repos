@@ -48,6 +48,153 @@ if (empty($token) || $token === 'YOUR_GITHUB_PERSONAL_ACCESS_TOKEN_HERE') {
 $action = $_GET['action'] ?? 'repos';
 $forceRefresh = isset($_GET['refresh']) && ($_GET['refresh'] === '1' || $_GET['refresh'] === 'true');
 
+// Persistent Metadata Storage (data/metadata.json with fallback to cache/metadata.json)
+$metadataDir = __DIR__ . '/data';
+$metadataFile = $metadataDir . '/metadata.json';
+$fallbackMetadataFile = __DIR__ . '/cache/metadata.json';
+
+function getStoredMetadata(): array {
+    global $metadataFile, $fallbackMetadataFile;
+
+    $fileToRead = file_exists($metadataFile) ? $metadataFile : (file_exists($fallbackMetadataFile) ? $fallbackMetadataFile : null);
+    if ($fileToRead) {
+        $raw = @file_get_contents($fileToRead);
+        if ($raw) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return [
+                    'database' => (array)($decoded['database'] ?? []),
+                    'auth' => (array)($decoded['auth'] ?? []),
+                    'ai_tool' => (array)($decoded['ai_tool'] ?? []),
+                    'prompt_tool' => (array)($decoded['prompt_tool'] ?? []),
+                    'updated_at' => $decoded['updated_at'] ?? null,
+                ];
+            }
+        }
+    }
+
+    return [
+        'database' => [],
+        'auth' => [],
+        'ai_tool' => [],
+        'prompt_tool' => [],
+        'updated_at' => null,
+    ];
+}
+
+function saveStoredMetadata(array $metadata): bool {
+    global $metadataDir, $metadataFile, $fallbackMetadataFile;
+
+    if (!is_dir($metadataDir)) {
+        @mkdir($metadataDir, 0755, true);
+    }
+
+    $targetFile = (is_dir($metadataDir) && is_writable($metadataDir)) ? $metadataFile : $fallbackMetadataFile;
+    if ($targetFile === $fallbackMetadataFile) {
+        $fallbackDir = dirname($fallbackMetadataFile);
+        if (!is_dir($fallbackDir)) {
+            @mkdir($fallbackDir, 0755, true);
+        }
+    }
+
+    $payload = [
+        'version' => 1,
+        'updated_at' => date('c'),
+        'database' => (array)($metadata['database'] ?? []),
+        'auth' => (array)($metadata['auth'] ?? []),
+        'ai_tool' => (array)($metadata['ai_tool'] ?? []),
+        'prompt_tool' => (array)($metadata['prompt_tool'] ?? []),
+    ];
+
+    $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    return @file_put_contents($targetFile, $json, LOCK_EX) !== false;
+}
+
+// Metadata read/write endpoint (persistent file-based storage)
+if ($action === 'metadata' || $action === 'save_metadata') {
+    $metadata = getStoredMetadata();
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $rawInput = file_get_contents('php://input');
+        $input = json_decode($rawInput, true);
+        if (!is_array($input)) {
+            $input = $_POST;
+        }
+
+        // Case 1: Batch synchronization
+        if (!empty($input['batch']) || isset($input['metadata'])) {
+            $batchData = $input['metadata'] ?? $input;
+            if (is_array($batchData)) {
+                foreach (['database', 'auth', 'ai_tool', 'prompt_tool'] as $field) {
+                    if (isset($batchData[$field]) && is_array($batchData[$field])) {
+                        $metadata[$field] = array_merge($metadata[$field] ?? [], $batchData[$field]);
+                    }
+                }
+                saveStoredMetadata($metadata);
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'Batch metadata updated successfully',
+                    'metadata' => $metadata,
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+        }
+
+        // Case 2: Single field update
+        $repoName = trim((string)($input['repo'] ?? $input['name'] ?? ''));
+        $repoId = !empty($input['repo_id']) ? (string)$input['repo_id'] : null;
+        $field = trim((string)($input['field'] ?? ''));
+        $value = trim((string)($input['value'] ?? ''));
+
+        // Normalize field names
+        if ($field === 'db' || $field === 'db_tracker') $field = 'database';
+        if ($field === 'auth_tracker') $field = 'auth';
+        if ($field === 'ai' || $field === 'ai_tools') $field = 'ai_tool';
+        if ($field === 'prompt' || $field === 'prompt_tools') $field = 'prompt_tool';
+
+        $validFields = ['database', 'auth', 'ai_tool', 'prompt_tool'];
+        if (empty($repoName) || !in_array($field, $validFields, true)) {
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Invalid parameters. "repo" and a valid "field" (database, auth, ai_tool, prompt_tool) are required.',
+                'code' => 'INVALID_PARAMS',
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
+        if (!isset($metadata[$field]) || !is_array($metadata[$field])) {
+            $metadata[$field] = [];
+        }
+
+        $metadata[$field][$repoName] = $value;
+        if ($repoId) {
+            $metadata[$field][$repoId] = $value;
+        }
+
+        saveStoredMetadata($metadata);
+
+        echo json_encode([
+            'success' => true,
+            'updated' => [
+                'repo' => $repoName,
+                'repo_id' => $repoId,
+                'field' => $field,
+                'value' => $value,
+            ],
+            'metadata' => $metadata,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    // GET request: Return all stored metadata
+    echo json_encode([
+        'success' => true,
+        'metadata' => $metadata,
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 // If action is checking status/health
 if ($action === 'status') {
     $isConfigured = !empty($token) && $token !== 'YOUR_GITHUB_PERSONAL_ACCESS_TOKEN_HERE';
@@ -85,6 +232,23 @@ if ($cacheEnabled && !$forceRefresh && file_exists($cacheFile)) {
         $cachedData = file_get_contents($cacheFile);
         $decodedCache = json_decode($cachedData, true);
         if (is_array($decodedCache) && isset($decodedCache['repositories'])) {
+            $currentMetadata = getStoredMetadata();
+            $decodedCache['metadata'] = $currentMetadata;
+
+            if (is_array($decodedCache['repositories'])) {
+                foreach ($decodedCache['repositories'] as &$cRepo) {
+                    $rName = $cRepo['name'] ?? '';
+                    $rId = isset($cRepo['id']) ? (string)$cRepo['id'] : '';
+                    $cRepo['user_metadata'] = [
+                        'database' => $currentMetadata['database'][$rName] ?? ($currentMetadata['database'][$rId] ?? null),
+                        'auth' => $currentMetadata['auth'][$rName] ?? ($currentMetadata['auth'][$rId] ?? null),
+                        'ai_tool' => $currentMetadata['ai_tool'][$rName] ?? ($currentMetadata['ai_tool'][$rId] ?? null),
+                        'prompt_tool' => $currentMetadata['prompt_tool'][$rName] ?? ($currentMetadata['prompt_tool'][$rId] ?? null),
+                    ];
+                }
+                unset($cRepo);
+            }
+
             $decodedCache['cached'] = true;
             $decodedCache['cached_age_seconds'] = time() - $cacheMtime;
             $decodedCache['cached_at'] = date('c', $cacheMtime);
@@ -678,6 +842,7 @@ $allRepositories = [];
 $page = 1;
 $maxPages = 50; // Safety cap allowing up to 5,000 repositories
 $lastRateLimitHeaders = [];
+$currentMetadata = getStoredMetadata();
 
 while ($page <= $maxPages) {
     $endpoint = sprintf(
@@ -754,6 +919,12 @@ while ($page <= $maxPages) {
             'is_template' => (bool)($repo['is_template'] ?? false),
             'topics' => $repo['topics'] ?? [],
             'inspection' => $inspectionData,
+            'user_metadata' => [
+                'database' => $currentMetadata['database'][$repo['name']] ?? ($currentMetadata['database'][(string)$repo['id']] ?? null),
+                'auth' => $currentMetadata['auth'][$repo['name']] ?? ($currentMetadata['auth'][(string)$repo['id']] ?? null),
+                'ai_tool' => $currentMetadata['ai_tool'][$repo['name']] ?? ($currentMetadata['ai_tool'][(string)$repo['id']] ?? null),
+                'prompt_tool' => $currentMetadata['prompt_tool'][$repo['name']] ?? ($currentMetadata['prompt_tool'][(string)$repo['id']] ?? null),
+            ],
             'license' => isset($repo['license']) && is_array($repo['license']) ? [
                 'key' => $repo['license']['key'] ?? '',
                 'name' => $repo['license']['name'] ?? '',
@@ -826,6 +997,7 @@ $responsePayload = [
         'languages' => $languagesBreakdown,
     ],
     'rate_limit' => $rateLimitInfo,
+    'metadata' => $currentMetadata,
     'pagination' => [
         'pages_fetched' => $page,
         'per_page' => $perPage,
