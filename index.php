@@ -320,6 +320,18 @@
                     <span class="hidden sm:inline">Refresh</span>
                 </button>
 
+                <!-- Global Save Changes / Sync Metadata Button -->
+                <button id="syncMetadataBtn" 
+                        type="button"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white border border-[#30363d] hover:border-[#388bfd]/60 transition active:scale-95 shadow-sm relative group"
+                        title="Save all changes & backup metadata to server (Ctrl+S)">
+                    <svg id="syncMetadataIcon" class="w-3.5 h-3.5 text-[#58a6ff] transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+                    </svg>
+                    <span id="syncMetadataText" class="hidden sm:inline">Save Changes</span>
+                    <span id="syncMetadataBadge" class="hidden w-2 h-2 rounded-full bg-[#f0883e] animate-pulse" title="Unsaved local modifications"></span>
+                </button>
+
                 <!-- Soft Blue Slate / Dark Theme Toggle Button -->
                 <button id="themeToggleBtn" 
                         type="button"

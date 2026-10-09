@@ -35,6 +35,8 @@
             live_url: {}
         },
         editingLiveUrlRepo: null,
+        hasUnsavedChanges: false,
+        isSyncingMetadata: false,
     };
 
     // Automated Architecture Detection Persistence Key
@@ -358,6 +360,26 @@
             });
         }
 
+        // Hydrate notes if local notes in localStorage are currently empty
+        const sNotes = (serverMetadata && serverMetadata.notes) || null;
+        if (sNotes && typeof sNotes === 'object') {
+            try {
+                const currentLocalCompleted = localStorage.getItem(NOTES_COMPLETED_KEY) || '';
+                const currentLocalNextSteps = localStorage.getItem(NOTES_NEXT_STEPS_KEY) || '';
+                if (!currentLocalCompleted && sNotes.completed) {
+                    localStorage.setItem(NOTES_COMPLETED_KEY, sNotes.completed);
+                    if (elements.notesCompletedText) elements.notesCompletedText.value = sNotes.completed;
+                }
+                if (!currentLocalNextSteps && sNotes.next_steps) {
+                    localStorage.setItem(NOTES_NEXT_STEPS_KEY, sNotes.next_steps);
+                    if (elements.notesNextStepsText) elements.notesNextStepsText.value = sNotes.next_steps;
+                }
+                updateNotesStats();
+            } catch (e) {
+                // Ignore localStorage errors
+            }
+        }
+
         // Save unified merged state back to localStorage
         saveAllMetadataToLocalStorage();
 
@@ -376,6 +398,139 @@
 
         if (hasUnsyncedKeys) {
             syncMetadataBatchToServer(state.metadata);
+        }
+    }
+
+    /**
+     * Mark that there are unsaved local modifications
+     */
+    function markUnsavedChanges() {
+        state.hasUnsavedChanges = true;
+        if (elements.syncMetadataBadge) {
+            elements.syncMetadataBadge.classList.remove('hidden');
+        }
+        if (elements.syncMetadataBtn) {
+            elements.syncMetadataBtn.classList.add('border-[#f0883e]/60');
+        }
+    }
+
+    /**
+     * Clear unsaved modifications status
+     */
+    function clearUnsavedChanges() {
+        state.hasUnsavedChanges = false;
+        if (elements.syncMetadataBadge) {
+            elements.syncMetadataBadge.classList.add('hidden');
+        }
+        if (elements.syncMetadataBtn) {
+            elements.syncMetadataBtn.classList.remove('border-[#f0883e]/60');
+        }
+    }
+
+    /**
+     * Full batch sync of all metadata and work notes to api.php with atomic persistence
+     */
+    async function syncAllMetadataToServer(manual = true) {
+        if (state.isSyncingMetadata) return;
+        state.isSyncingMetadata = true;
+
+        if (elements.syncMetadataBtn) {
+            elements.syncMetadataBtn.disabled = true;
+        }
+        if (elements.syncMetadataIcon) {
+            elements.syncMetadataIcon.classList.add('animate-spin');
+        }
+        if (elements.syncMetadataText) {
+            elements.syncMetadataText.textContent = 'Saving...';
+        }
+
+        const completedNotes = elements.notesCompletedText ? elements.notesCompletedText.value : (localStorage.getItem(NOTES_COMPLETED_KEY) || '');
+        const nextStepsNotes = elements.notesNextStepsText ? elements.notesNextStepsText.value : (localStorage.getItem(NOTES_NEXT_STEPS_KEY) || '');
+
+        saveAllMetadataToLocalStorage();
+        try {
+            localStorage.setItem(NOTES_COMPLETED_KEY, completedNotes);
+            localStorage.setItem(NOTES_NEXT_STEPS_KEY, nextStepsNotes);
+        } catch (e) {}
+
+        const payload = {
+            full_sync: true,
+            batch: true,
+            metadata: {
+                database: state.metadata.database || {},
+                auth: state.metadata.auth || {},
+                ai_tool: state.metadata.ai_tool || {},
+                prompt_tool: state.metadata.prompt_tool || {},
+                live_url: state.metadata.live_url || {},
+                notes: {
+                    completed: completedNotes,
+                    next_steps: nextStepsNotes
+                }
+            }
+        };
+
+        try {
+            const response = await fetch('api.php?action=save_metadata', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error((data && data.error) || `HTTP ${response.status}: Failed to persist metadata.`);
+            }
+
+            clearUnsavedChanges();
+
+            // Visual feedback: green status on button for 2.5 seconds
+            if (elements.syncMetadataBtn) {
+                elements.syncMetadataBtn.classList.add('!bg-[#238636]', '!border-[#2ea043]', '!text-white');
+            }
+            if (elements.syncMetadataIcon) {
+                elements.syncMetadataIcon.classList.remove('animate-spin');
+                elements.syncMetadataIcon.classList.add('text-white');
+            }
+            if (elements.syncMetadataText) {
+                elements.syncMetadataText.textContent = 'Saved \u2713';
+            }
+
+            if (manual) {
+                showToast('All metadata, trackers, and notes saved to server!', 'success');
+            }
+
+            setTimeout(() => {
+                if (elements.syncMetadataBtn) {
+                    elements.syncMetadataBtn.classList.remove('!bg-[#238636]', '!border-[#2ea043]', '!text-white');
+                    elements.syncMetadataBtn.disabled = false;
+                }
+                if (elements.syncMetadataIcon) {
+                    elements.syncMetadataIcon.classList.remove('text-white');
+                }
+                if (elements.syncMetadataText) {
+                    elements.syncMetadataText.textContent = 'Save Changes';
+                }
+            }, 2500);
+
+        } catch (e) {
+            console.error('Failed to save metadata to server:', e);
+            if (manual) {
+                showToast('Failed to save metadata to server: ' + (e.message || 'Network error'), 'error');
+            }
+            if (elements.syncMetadataIcon) {
+                elements.syncMetadataIcon.classList.remove('animate-spin');
+            }
+            if (elements.syncMetadataText) {
+                elements.syncMetadataText.textContent = 'Save Changes';
+            }
+            if (elements.syncMetadataBtn) {
+                elements.syncMetadataBtn.disabled = false;
+            }
+        } finally {
+            state.isSyncingMetadata = false;
         }
     }
 
@@ -452,6 +607,7 @@
         }
 
         saveAllMetadataToLocalStorage();
+        markUnsavedChanges();
         saveMetadataToServer(repoName, field, value, repoId);
     }
 
@@ -1125,6 +1281,7 @@
             console.error('Failed to save notes to localStorage:', e);
         }
 
+        markUnsavedChanges();
         updateNotesStats();
 
         if (elements.notesAutoSaveStatus) {
@@ -1216,6 +1373,7 @@
             }
             if (elements.notesCompletedText) elements.notesCompletedText.value = '';
             if (elements.notesNextStepsText) elements.notesNextStepsText.value = '';
+            markUnsavedChanges();
             updateNotesStats();
             showToast('All work notes have been cleared.', 'info');
         }
@@ -1334,6 +1492,10 @@
         batchMenuDropdown: document.getElementById('batchMenuDropdown'),
         refreshBtn: document.getElementById('refreshBtn'),
         refreshIcon: document.getElementById('refreshIcon'),
+        syncMetadataBtn: document.getElementById('syncMetadataBtn'),
+        syncMetadataIcon: document.getElementById('syncMetadataIcon'),
+        syncMetadataText: document.getElementById('syncMetadataText'),
+        syncMetadataBadge: document.getElementById('syncMetadataBadge'),
         resetFiltersBtn: document.getElementById('resetFiltersBtn'),
         toastContainer: document.getElementById('toastContainer'),
         repoModal: document.getElementById('repoModal'),
@@ -2529,6 +2691,13 @@
             fetchRepositories(true);
         });
 
+        // Save Changes / Sync Metadata Button
+        if (elements.syncMetadataBtn) {
+            elements.syncMetadataBtn.addEventListener('click', () => {
+                syncAllMetadataToServer(true);
+            });
+        }
+
         // Retry Button on error
         elements.retryBtn.addEventListener('click', () => {
             fetchRepositories(true);
@@ -2585,6 +2754,13 @@
 
         // Keyboard Shortcuts
         document.addEventListener('keydown', (e) => {
+            // Ctrl+S / Cmd+S to Save Changes
+            if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+                syncAllMetadataToServer(true);
+                return;
+            }
+
             // Esc to close notes drawer or modal
             if (e.key === 'Escape') {
                 if (elements.liveUrlModal && !elements.liveUrlModal.classList.contains('hidden')) {
@@ -2693,6 +2869,14 @@
 
     window.editLiveUrl = function (repoName, repoId) {
         openLiveUrlModal(repoName, repoId);
+    };
+
+    window.syncAllMetadata = function () {
+        syncAllMetadataToServer(true);
+    };
+
+    window.saveChanges = function () {
+        syncAllMetadataToServer(true);
     };
 
     // Initialize application

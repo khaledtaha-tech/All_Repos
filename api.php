@@ -68,6 +68,7 @@ function getStoredMetadata(): array {
                     'ai_tool' => (array)($decoded['ai_tool'] ?? []),
                     'prompt_tool' => (array)($decoded['prompt_tool'] ?? []),
                     'live_url' => (array)($decoded['live_url'] ?? []),
+                    'notes' => (array)($decoded['notes'] ?? ['completed' => '', 'next_steps' => '']),
                     'updated_at' => $decoded['updated_at'] ?? null,
                 ];
             }
@@ -80,6 +81,7 @@ function getStoredMetadata(): array {
         'ai_tool' => [],
         'prompt_tool' => [],
         'live_url' => [],
+        'notes' => ['completed' => '', 'next_steps' => ''],
         'updated_at' => null,
     ];
 }
@@ -107,6 +109,10 @@ function saveStoredMetadata(array $metadata): bool {
         'ai_tool' => (array)($metadata['ai_tool'] ?? []),
         'prompt_tool' => (array)($metadata['prompt_tool'] ?? []),
         'live_url' => (array)($metadata['live_url'] ?? []),
+        'notes' => [
+            'completed' => (string)($metadata['notes']['completed'] ?? ''),
+            'next_steps' => (string)($metadata['notes']['next_steps'] ?? ''),
+        ],
     ];
 
     $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -114,7 +120,7 @@ function saveStoredMetadata(array $metadata): bool {
 }
 
 // Metadata read/write endpoint (persistent file-based storage)
-if ($action === 'metadata' || $action === 'save_metadata') {
+if ($action === 'metadata' || $action === 'save_metadata' || $action === 'sync_metadata') {
     $metadata = getStoredMetadata();
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -124,20 +130,32 @@ if ($action === 'metadata' || $action === 'save_metadata') {
             $input = $_POST;
         }
 
-        // Case 1: Batch synchronization
-        if (!empty($input['batch']) || isset($input['metadata'])) {
+        // Case 1: Batch / Full synchronization
+        if (!empty($input['batch']) || isset($input['metadata']) || !empty($input['full_sync']) || $action === 'save_metadata' || $action === 'sync_metadata') {
             $batchData = $input['metadata'] ?? $input;
             if (is_array($batchData)) {
+                $isFullSync = !empty($input['full_sync']) || ($action === 'save_metadata' && isset($input['metadata']));
                 foreach (['database', 'auth', 'ai_tool', 'prompt_tool', 'live_url'] as $field) {
                     if (isset($batchData[$field]) && is_array($batchData[$field])) {
-                        $metadata[$field] = array_merge($metadata[$field] ?? [], $batchData[$field]);
+                        if ($isFullSync) {
+                            $metadata[$field] = $batchData[$field];
+                        } else {
+                            $metadata[$field] = array_merge($metadata[$field] ?? [], $batchData[$field]);
+                        }
                     }
+                }
+                if (isset($batchData['notes']) && is_array($batchData['notes'])) {
+                    $metadata['notes'] = [
+                        'completed' => (string)($batchData['notes']['completed'] ?? ''),
+                        'next_steps' => (string)($batchData['notes']['next_steps'] ?? ''),
+                    ];
                 }
                 saveStoredMetadata($metadata);
                 echo json_encode([
                     'success' => true,
-                    'message' => 'Batch metadata updated successfully',
+                    'message' => 'Metadata synced and persisted successfully',
                     'metadata' => $metadata,
+                    'saved_at' => date('c'),
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
                 exit;
             }
