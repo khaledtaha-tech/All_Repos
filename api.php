@@ -67,6 +67,7 @@ function getStoredMetadata(): array {
                     'auth' => (array)($decoded['auth'] ?? []),
                     'ai_tool' => (array)($decoded['ai_tool'] ?? []),
                     'prompt_tool' => (array)($decoded['prompt_tool'] ?? []),
+                    'live_url' => (array)($decoded['live_url'] ?? []),
                     'updated_at' => $decoded['updated_at'] ?? null,
                 ];
             }
@@ -78,6 +79,7 @@ function getStoredMetadata(): array {
         'auth' => [],
         'ai_tool' => [],
         'prompt_tool' => [],
+        'live_url' => [],
         'updated_at' => null,
     ];
 }
@@ -104,6 +106,7 @@ function saveStoredMetadata(array $metadata): bool {
         'auth' => (array)($metadata['auth'] ?? []),
         'ai_tool' => (array)($metadata['ai_tool'] ?? []),
         'prompt_tool' => (array)($metadata['prompt_tool'] ?? []),
+        'live_url' => (array)($metadata['live_url'] ?? []),
     ];
 
     $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -125,7 +128,7 @@ if ($action === 'metadata' || $action === 'save_metadata') {
         if (!empty($input['batch']) || isset($input['metadata'])) {
             $batchData = $input['metadata'] ?? $input;
             if (is_array($batchData)) {
-                foreach (['database', 'auth', 'ai_tool', 'prompt_tool'] as $field) {
+                foreach (['database', 'auth', 'ai_tool', 'prompt_tool', 'live_url'] as $field) {
                     if (isset($batchData[$field]) && is_array($batchData[$field])) {
                         $metadata[$field] = array_merge($metadata[$field] ?? [], $batchData[$field]);
                     }
@@ -151,13 +154,14 @@ if ($action === 'metadata' || $action === 'save_metadata') {
         if ($field === 'auth_tracker') $field = 'auth';
         if ($field === 'ai' || $field === 'ai_tools') $field = 'ai_tool';
         if ($field === 'prompt' || $field === 'prompt_tools') $field = 'prompt_tool';
+        if ($field === 'custom_live_url' || $field === 'live' || $field === 'live_app') $field = 'live_url';
 
-        $validFields = ['database', 'auth', 'ai_tool', 'prompt_tool'];
+        $validFields = ['database', 'auth', 'ai_tool', 'prompt_tool', 'live_url'];
         if (empty($repoName) || !in_array($field, $validFields, true)) {
             http_response_code(400);
             echo json_encode([
                 'success' => false,
-                'error' => 'Invalid parameters. "repo" and a valid "field" (database, auth, ai_tool, prompt_tool) are required.',
+                'error' => 'Invalid parameters. "repo" and a valid "field" (database, auth, ai_tool, prompt_tool, live_url) are required.',
                 'code' => 'INVALID_PARAMS',
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
             exit;
@@ -167,9 +171,16 @@ if ($action === 'metadata' || $action === 'save_metadata') {
             $metadata[$field] = [];
         }
 
-        $metadata[$field][$repoName] = $value;
-        if ($repoId) {
-            $metadata[$field][$repoId] = $value;
+        if ($value === '' || $value === 'none') {
+            unset($metadata[$field][$repoName]);
+            if ($repoId) {
+                unset($metadata[$field][$repoId]);
+            }
+        } else {
+            $metadata[$field][$repoName] = $value;
+            if ($repoId) {
+                $metadata[$field][$repoId] = $value;
+            }
         }
 
         saveStoredMetadata($metadata);
@@ -244,6 +255,7 @@ if ($cacheEnabled && !$forceRefresh && file_exists($cacheFile)) {
                         'auth' => $currentMetadata['auth'][$rName] ?? ($currentMetadata['auth'][$rId] ?? null),
                         'ai_tool' => $currentMetadata['ai_tool'][$rName] ?? ($currentMetadata['ai_tool'][$rId] ?? null),
                         'prompt_tool' => $currentMetadata['prompt_tool'][$rName] ?? ($currentMetadata['prompt_tool'][$rId] ?? null),
+                        'live_url' => $currentMetadata['live_url'][$rName] ?? ($currentMetadata['live_url'][$rId] ?? null),
                     ];
                 }
                 unset($cRepo);
@@ -924,6 +936,7 @@ while ($page <= $maxPages) {
                 'auth' => $currentMetadata['auth'][$repo['name']] ?? ($currentMetadata['auth'][(string)$repo['id']] ?? null),
                 'ai_tool' => $currentMetadata['ai_tool'][$repo['name']] ?? ($currentMetadata['ai_tool'][(string)$repo['id']] ?? null),
                 'prompt_tool' => $currentMetadata['prompt_tool'][$repo['name']] ?? ($currentMetadata['prompt_tool'][(string)$repo['id']] ?? null),
+                'live_url' => $currentMetadata['live_url'][$repo['name']] ?? ($currentMetadata['live_url'][(string)$repo['id']] ?? null),
             ],
             'license' => isset($repo['license']) && is_array($repo['license']) ? [
                 'key' => $repo['license']['key'] ?? '',

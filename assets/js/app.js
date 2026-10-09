@@ -31,8 +31,10 @@
             database: {},
             auth: {},
             ai_tool: {},
-            prompt_tool: {}
+            prompt_tool: {},
+            live_url: {}
         },
+        editingLiveUrlRepo: null,
     };
 
     // Automated Architecture Detection Persistence Key
@@ -262,6 +264,17 @@
         }
     }
 
+    const LIVE_URLS_STORAGE_KEY = 'all_repos_custom_live_urls';
+
+    function getCustomLiveUrlsMap() {
+        try {
+            const stored = localStorage.getItem(LIVE_URLS_STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
     /**
      * Save current state.metadata to browser localStorage
      */
@@ -271,6 +284,7 @@
             localStorage.setItem(AUTH_TRACKER_STORAGE_KEY, JSON.stringify(state.metadata.auth || {}));
             localStorage.setItem(AI_TOOLS_STORAGE_KEY, JSON.stringify(state.metadata.ai_tool || {}));
             localStorage.setItem(PROMPT_TOOLS_STORAGE_KEY, JSON.stringify(state.metadata.prompt_tool || {}));
+            localStorage.setItem(LIVE_URLS_STORAGE_KEY, JSON.stringify(state.metadata.live_url || {}));
         } catch (e) {
             console.error('Failed to save metadata to localStorage:', e);
         }
@@ -284,6 +298,7 @@
         state.metadata.auth = getAuthTrackerMap();
         state.metadata.ai_tool = getAiToolsMap();
         state.metadata.prompt_tool = getPromptToolsMap();
+        state.metadata.live_url = getCustomLiveUrlsMap();
     }
 
     /**
@@ -298,17 +313,20 @@
         const localAuth = getAuthTrackerMap();
         const localAi = getAiToolsMap();
         const localPrompt = getPromptToolsMap();
+        const localLiveUrl = getCustomLiveUrlsMap();
 
         const sDb = (serverMetadata && serverMetadata.database) || {};
         const sAuth = (serverMetadata && serverMetadata.auth) || {};
         const sAi = (serverMetadata && serverMetadata.ai_tool) || {};
         const sPrompt = (serverMetadata && serverMetadata.prompt_tool) || {};
+        const sLiveUrl = (serverMetadata && (serverMetadata.live_url || serverMetadata.custom_live_url)) || {};
 
         // Merge: combine local and server, preserving all explicit entries
         state.metadata.database = { ...localDb, ...sDb };
         state.metadata.auth = { ...localAuth, ...sAuth };
         state.metadata.ai_tool = { ...localAi, ...sAi };
         state.metadata.prompt_tool = { ...localPrompt, ...sPrompt };
+        state.metadata.live_url = { ...localLiveUrl, ...sLiveUrl };
 
         // Also check if any repository entity from API has embedded user_metadata
         if (Array.isArray(state.repositories)) {
@@ -332,6 +350,10 @@
                         if (state.metadata.prompt_tool[name] === undefined) state.metadata.prompt_tool[name] = repo.user_metadata.prompt_tool;
                         if (id && state.metadata.prompt_tool[id] === undefined) state.metadata.prompt_tool[id] = repo.user_metadata.prompt_tool;
                     }
+                    if (repo.user_metadata.live_url !== null && repo.user_metadata.live_url !== undefined) {
+                        if (state.metadata.live_url[name] === undefined) state.metadata.live_url[name] = repo.user_metadata.live_url;
+                        if (id && state.metadata.live_url[id] === undefined) state.metadata.live_url[id] = repo.user_metadata.live_url;
+                    }
                 }
             });
         }
@@ -341,9 +363,9 @@
 
         // Check if client had local selections that the server file was missing
         let hasUnsyncedKeys = false;
-        ['database', 'auth', 'ai_tool', 'prompt_tool'].forEach(field => {
-            const local = field === 'database' ? localDb : (field === 'auth' ? localAuth : (field === 'ai_tool' ? localAi : localPrompt));
-            const server = field === 'database' ? sDb : (field === 'auth' ? sAuth : (field === 'ai_tool' ? sAi : sPrompt));
+        ['database', 'auth', 'ai_tool', 'prompt_tool', 'live_url'].forEach(field => {
+            const local = field === 'database' ? localDb : (field === 'auth' ? localAuth : (field === 'ai_tool' ? localAi : (field === 'prompt_tool' ? localPrompt : localLiveUrl)));
+            const server = field === 'database' ? sDb : (field === 'auth' ? sAuth : (field === 'ai_tool' ? sAi : (field === 'prompt_tool' ? sPrompt : sLiveUrl)));
             for (const k in local) {
                 if (local[k] !== undefined && server[k] === undefined) {
                     hasUnsyncedKeys = true;
@@ -651,7 +673,7 @@
     function renderAuthCell(repo) { return buildAuthStatusToggleHtml(repo); }
 
     /**
-     * Clean and validate a live website URL from repo.homepage
+     * Clean and validate a live website URL
      */
     function formatLiveUrl(url) {
         if (!url || typeof url !== 'string') return null;
@@ -660,10 +682,208 @@
         if (/^https?:\/\//i.test(trimmed)) {
             return trimmed;
         }
+        if (/^localhost(:\d+)?/i.test(trimmed)) {
+            return 'http://' + trimmed;
+        }
         if (/^[a-zA-Z0-9][-a-zA-Z0-9]*(\.[a-zA-Z0-9]+)+/i.test(trimmed)) {
             return 'https://' + trimmed;
         }
         return null;
+    }
+
+    /**
+     * Get effective live URL for a repository, giving precedence to manual override
+     * Returns: { url: string|null, isCustom: boolean }
+     */
+    function getRepoEffectiveLiveUrl(repo) {
+        if (!repo) return { url: null, isCustom: false };
+
+        const customVal = getMetadataValue(state.metadata.live_url, repo);
+        const formattedCustom = customVal ? formatLiveUrl(customVal) : null;
+
+        if (formattedCustom) {
+            return { url: formattedCustom, isCustom: true };
+        }
+
+        const formattedDefault = formatLiveUrl(repo.homepage);
+        if (formattedDefault) {
+            return { url: formattedDefault, isCustom: false };
+        }
+
+        return { url: null, isCustom: false };
+    }
+
+    /**
+     * Set or clear custom Live App URL for a repository, persisting to localStorage and api.php
+     */
+    function setRepoCustomLiveUrl(repoName, customUrl, repoId) {
+        try {
+            const cleanedUrl = customUrl ? formatLiveUrl(customUrl) : '';
+            setMetadataField('live_url', repoName, cleanedUrl || '', repoId);
+
+            const targetRepo = state.repositories.find(r => r.name === repoName || (repoId && r.id === repoId));
+            if (targetRepo && targetRepo.user_metadata) {
+                targetRepo.user_metadata.live_url = cleanedUrl || null;
+            }
+
+            updateLiveUrlDOM(repoName, targetRepo || { name: repoName, id: repoId });
+
+            if (cleanedUrl) {
+                showToast(`Live App URL for "${repoName}" updated.`, 'success');
+            } else {
+                showToast(`Live App URL for "${repoName}" reset to default.`, 'info');
+            }
+        } catch (e) {
+            console.error('Failed to set custom live URL:', e);
+            showToast('Failed to save Live App URL.', 'error');
+        }
+    }
+
+    /**
+     * Update Live URL cell DOM across table, grid, and modal
+     */
+    function updateLiveUrlDOM(repoName, repo) {
+        const listCells = document.querySelectorAll(`[data-live-cell="${CSS.escape(repoName)}"]`);
+        listCells.forEach(cell => {
+            const parentTd = cell.closest('td');
+            if (parentTd) {
+                parentTd.innerHTML = renderLiveAppCell(repo);
+            } else {
+                cell.outerHTML = renderLiveAppCell(repo);
+            }
+        });
+
+        if (state.viewMode === 'grid') {
+            renderGridView();
+        }
+        if (state.selectedRepo && state.selectedRepo.name === repoName && elements.repoModal && !elements.repoModal.classList.contains('hidden')) {
+            openRepoModal(state.selectedRepo.id);
+        }
+    }
+
+    /**
+     * Render Live App Table Cell
+     */
+    function renderLiveAppCell(repo) {
+        const info = getRepoEffectiveLiveUrl(repo);
+        const effectiveUrl = info.url;
+        const isCustom = info.isCustom;
+
+        let badgeHtml = '';
+        if (effectiveUrl) {
+            const badgeClasses = isCustom
+                ? 'bg-[#1f6feb]/20 hover:bg-[#1f6feb]/35 text-[#58a6ff] border-[#388bfd]/50'
+                : 'bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border-[#238636]/40';
+            const badgeTitle = isCustom
+                ? `Visit App (Custom Override): ${escapeHtml(effectiveUrl)}`
+                : `Visit App: ${escapeHtml(effectiveUrl)}`;
+
+            badgeHtml = `
+                <a href="${escapeHtml(effectiveUrl)}" target="_blank" rel="noopener noreferrer" 
+                   class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${badgeClasses} border transition shadow-sm hover:scale-105 active:scale-95" 
+                   title="${badgeTitle}">
+                   <span>Visit App</span>
+                   <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                </a>
+            `;
+        } else {
+            badgeHtml = `<span class="text-[#8b949e]/40 font-mono text-xs select-none pl-1">—</span>`;
+        }
+
+        const editBtn = `
+            <button onclick="window.editLiveUrl('${escapeHtml(repo.name)}', ${repo.id})" 
+                    class="p-1 rounded text-[#8b949e] hover:text-[#58a6ff] hover:bg-[#21262d] transition opacity-70 group-hover:opacity-100" 
+                    title="${isCustom ? 'Edit custom Live App URL (Override Active)' : 'Set custom Live App URL'}">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+            </button>
+        `;
+
+        const customTag = isCustom ? `
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#1f6feb]/20 text-[#79c0ff] border border-[#388bfd]/30 select-none" title="Custom manual override: ${escapeHtml(effectiveUrl)}">Custom</span>
+        ` : '';
+
+        return `
+            <div class="flex items-center gap-1.5" data-live-cell="${escapeHtml(repo.name)}" ondblclick="window.editLiveUrl('${escapeHtml(repo.name)}', ${repo.id})">
+                ${badgeHtml}
+                ${customTag}
+                ${editBtn}
+            </div>
+        `;
+    }
+
+    /**
+     * Open Edit Live App URL Modal Dialog
+     */
+    function openLiveUrlModal(repoName, repoId) {
+        const repo = state.repositories.find(r => r.name === repoName || (repoId && r.id === repoId));
+        if (!repo) return;
+
+        state.editingLiveUrlRepo = { name: repo.name, id: repo.id };
+
+        if (elements.liveUrlModalRepoName) {
+            elements.liveUrlModalRepoName.textContent = repo.full_name || repo.name;
+        }
+
+        const info = getRepoEffectiveLiveUrl(repo);
+        const defaultHomepage = formatLiveUrl(repo.homepage);
+
+        if (elements.liveUrlInput) {
+            elements.liveUrlInput.value = info.isCustom ? (info.url || '') : '';
+        }
+
+        if (elements.liveUrlDefaultValue) {
+            elements.liveUrlDefaultValue.textContent = defaultHomepage ? defaultHomepage : 'None specified in GitHub';
+        }
+
+        if (elements.resetLiveUrlBtn) {
+            if (info.isCustom) {
+                elements.resetLiveUrlBtn.classList.remove('hidden');
+            } else {
+                elements.resetLiveUrlBtn.classList.add('hidden');
+            }
+        }
+
+        if (elements.liveUrlModal) {
+            elements.liveUrlModal.classList.remove('hidden');
+            setTimeout(() => {
+                if (elements.liveUrlInput) {
+                    elements.liveUrlInput.focus();
+                    elements.liveUrlInput.select();
+                }
+            }, 50);
+        }
+    }
+
+    /**
+     * Close Edit Live App URL Modal Dialog
+     */
+    function closeLiveUrlModal() {
+        if (elements.liveUrlModal) {
+            elements.liveUrlModal.classList.add('hidden');
+        }
+        state.editingLiveUrlRepo = null;
+    }
+
+    /**
+     * Handle Live App URL Form Submission
+     */
+    function handleLiveUrlFormSubmit(e) {
+        if (e && typeof e.preventDefault === 'function') {
+            e.preventDefault();
+        }
+        if (!state.editingLiveUrlRepo) return;
+        const val = elements.liveUrlInput ? elements.liveUrlInput.value.trim() : '';
+        setRepoCustomLiveUrl(state.editingLiveUrlRepo.name, val, state.editingLiveUrlRepo.id);
+        closeLiveUrlModal();
+    }
+
+    /**
+     * Handle Reset Live App URL to Default
+     */
+    function handleResetLiveUrl() {
+        if (!state.editingLiveUrlRepo) return;
+        setRepoCustomLiveUrl(state.editingLiveUrlRepo.name, '', state.editingLiveUrlRepo.id);
+        closeLiveUrlModal();
     }
 
     /**
@@ -1120,6 +1340,17 @@
         modalBackdrop: document.getElementById('modalBackdrop'),
         modalContent: document.getElementById('modalContent'),
         closeModalBtn: document.getElementById('closeModalBtn'),
+        // Edit Live App URL Modal
+        liveUrlModal: document.getElementById('liveUrlModal'),
+        liveUrlModalBackdrop: document.getElementById('liveUrlModalBackdrop'),
+        liveUrlModalRepoName: document.getElementById('liveUrlModalRepoName'),
+        closeLiveUrlModalBtn: document.getElementById('closeLiveUrlModalBtn'),
+        liveUrlForm: document.getElementById('liveUrlForm'),
+        liveUrlInput: document.getElementById('liveUrlInput'),
+        liveUrlDefaultValue: document.getElementById('liveUrlDefaultValue'),
+        resetLiveUrlBtn: document.getElementById('resetLiveUrlBtn'),
+        cancelLiveUrlBtn: document.getElementById('cancelLiveUrlBtn'),
+        saveLiveUrlBtn: document.getElementById('saveLiveUrlBtn'),
         // Stat Counters
         statTotalRepos: document.getElementById('statTotalRepos'),
         statShowingRepos: document.getElementById('statShowingRepos'),
@@ -1628,13 +1859,15 @@
                    </span>`
                 : '';
 
-            const liveUrl = formatLiveUrl(repo.homepage);
+            const liveInfo = getRepoEffectiveLiveUrl(repo);
+            const liveUrl = liveInfo.url;
             const liveSiteBadge = liveUrl
                 ? `<a href="${escapeHtml(liveUrl)}" target="_blank" rel="noopener noreferrer" 
-                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/50 transition shadow-sm"
-                      title="Open live website: ${escapeHtml(liveUrl)}">
+                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${liveInfo.isCustom ? 'bg-[#1f6feb]/20 hover:bg-[#1f6feb]/35 text-[#58a6ff] border border-[#388bfd]/50' : 'bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/50'} transition shadow-sm"
+                      title="${liveInfo.isCustom ? 'Open custom live website: ' : 'Open live website: '}${escapeHtml(liveUrl)}">
                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                      <span>Live App</span>
+                     ${liveInfo.isCustom ? '<span class="text-[9px] bg-[#388bfd]/25 text-[#58a6ff] border border-[#388bfd]/40 rounded px-1 ml-0.5">Custom</span>' : ''}
                    </a>`
                 : '';
 
@@ -1776,8 +2009,8 @@
                         <!-- Live App button if available -->
                         ${liveUrl ? `
                             <a href="${escapeHtml(liveUrl)}" target="_blank" rel="noopener noreferrer" 
-                               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/50 transition active:scale-95" 
-                               title="Visit App: ${escapeHtml(liveUrl)}">
+                               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold ${liveInfo.isCustom ? 'bg-[#1f6feb]/20 hover:bg-[#1f6feb]/35 text-[#58a6ff] border border-[#388bfd]/50' : 'bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/50'} transition active:scale-95" 
+                               title="${liveInfo.isCustom ? 'Visit App (Custom Override): ' : 'Visit App: '}${escapeHtml(liveUrl)}">
                                 <span>Visit App</span>
                                 <span class="text-[11px] leading-none">&nearr;</span>
                             </a>
@@ -1813,15 +2046,6 @@
                 ? `<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-[#382352] text-[#d2a8ff] border border-[#a371f7]/40">Private</span>`
                 : `<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-[#1b2533] text-[#79c0ff] border border-[#388bfd]/30">Public</span>`;
 
-            const liveUrl = formatLiveUrl(repo.homepage);
-            const liveAppBadge = liveUrl 
-                ? `<a href="${escapeHtml(liveUrl)}" target="_blank" rel="noopener noreferrer" 
-                      class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-[#238636]/20 hover:bg-[#238636]/35 text-[#3fb950] border border-[#238636]/40 transition shadow-sm hover:scale-105 active:scale-95" 
-                      title="Visit App: ${escapeHtml(liveUrl)}">
-                     <span>Visit App</span>
-                     <svg class="w-3 h-3 text-[#3fb950]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                   </a>`
-                : `<span class="text-[#8b949e]/40 font-mono text-xs select-none pl-1">—</span>`;
 
             rowsHtml += `
             <tr class="border-b border-[#21262d] hover:bg-[#161b22]/70 transition-colors group ${isLatest ? 'bg-[#238636]/5' : ''}">
@@ -1866,7 +2090,7 @@
 
                 <!-- Dedicated Live App Column -->
                 <td class="py-3 px-4 whitespace-nowrap">
-                    ${liveAppBadge}
+                    ${renderLiveAppCell(repo)}
                 </td>
 
                 <!-- Tech Stack Column -->
@@ -2011,7 +2235,8 @@
         state.selectedRepo = repo;
         const lang = repo.language || 'Unspecified';
         const langColor = languageColors[lang] || '#6e7681';
-        const liveUrl = formatLiveUrl(repo.homepage);
+        const liveInfo = getRepoEffectiveLiveUrl(repo);
+        const liveUrl = liveInfo.url;
 
         elements.modalContent.innerHTML = `
             <div class="flex items-start justify-between gap-4 pb-4 border-b border-[#30363d]">
@@ -2036,12 +2261,19 @@
                 <div class="flex items-center gap-2 flex-wrap flex-shrink-0">
                     ${liveUrl ? `
                         <a href="${escapeHtml(liveUrl)}" target="_blank" rel="noopener noreferrer" 
-                           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#238636]/25 hover:bg-[#238636]/40 text-[#3fb950] border border-[#238636]/50 transition shadow-sm" 
-                           title="Visit App: ${escapeHtml(liveUrl)}">
+                           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${liveInfo.isCustom ? 'bg-[#1f6feb]/25 hover:bg-[#1f6feb]/40 text-[#58a6ff] border border-[#388bfd]/50' : 'bg-[#238636]/25 hover:bg-[#238636]/40 text-[#3fb950] border border-[#238636]/50'} transition shadow-sm" 
+                           title="${liveInfo.isCustom ? 'Visit App (Custom Override): ' : 'Visit App: '}${escapeHtml(liveUrl)}">
                             <span>Visit App</span>
                             <span class="text-[11px] leading-none">&nearr;</span>
+                            ${liveInfo.isCustom ? '<span class="text-[9px] bg-[#388bfd]/25 text-[#58a6ff] border border-[#388bfd]/40 rounded px-1 ml-0.5">Custom</span>' : ''}
                         </a>
                     ` : ''}
+                    <button onclick="window.editLiveUrl('${escapeHtml(repo.name)}', ${repo.id})" 
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] border border-[#30363d] hover:border-[#58a6ff] transition"
+                            title="Edit / Override Live App URL">
+                        <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                        <span>Edit Live URL</span>
+                    </button>
                     <a href="${escapeHtml(repo.html_url)}" target="_blank" rel="noopener noreferrer" 
                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white transition">
                         <span>Open on GitHub</span>
@@ -2306,6 +2538,23 @@
         elements.closeModalBtn.addEventListener('click', closeRepoModal);
         elements.modalBackdrop.addEventListener('click', closeRepoModal);
 
+        // Live URL Modal events
+        if (elements.closeLiveUrlModalBtn) {
+            elements.closeLiveUrlModalBtn.addEventListener('click', closeLiveUrlModal);
+        }
+        if (elements.cancelLiveUrlBtn) {
+            elements.cancelLiveUrlBtn.addEventListener('click', closeLiveUrlModal);
+        }
+        if (elements.liveUrlModalBackdrop) {
+            elements.liveUrlModalBackdrop.addEventListener('click', closeLiveUrlModal);
+        }
+        if (elements.liveUrlForm) {
+            elements.liveUrlForm.addEventListener('submit', handleLiveUrlFormSubmit);
+        }
+        if (elements.resetLiveUrlBtn) {
+            elements.resetLiveUrlBtn.addEventListener('click', handleResetLiveUrl);
+        }
+
         // Work Notes Drawer events
         if (elements.notesToggleBtn) {
             elements.notesToggleBtn.addEventListener('click', openNotesDrawer);
@@ -2338,6 +2587,10 @@
         document.addEventListener('keydown', (e) => {
             // Esc to close notes drawer or modal
             if (e.key === 'Escape') {
+                if (elements.liveUrlModal && !elements.liveUrlModal.classList.contains('hidden')) {
+                    closeLiveUrlModal();
+                    return;
+                }
                 if (elements.notesDrawer && !elements.notesDrawer.classList.contains('invisible')) {
                     closeNotesDrawer();
                     return;
@@ -2436,6 +2689,10 @@
 
     window.copyAllVisibleSsh = function () {
         copyAllVisibleSshUrls();
+    };
+
+    window.editLiveUrl = function (repoName, repoId) {
+        openLiveUrlModal(repoName, repoId);
     };
 
     // Initialize application
