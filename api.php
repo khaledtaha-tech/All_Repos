@@ -68,6 +68,7 @@ function getStoredMetadata(): array {
                     'ai_tool' => (array)($decoded['ai_tool'] ?? []),
                     'prompt_tool' => (array)($decoded['prompt_tool'] ?? []),
                     'live_url' => (array)($decoded['live_url'] ?? []),
+                    'deployed_branch' => (array)($decoded['deployed_branch'] ?? []),
                     'notes' => (array)($decoded['notes'] ?? ['completed' => '', 'next_steps' => '']),
                     'updated_at' => $decoded['updated_at'] ?? null,
                 ];
@@ -81,6 +82,7 @@ function getStoredMetadata(): array {
         'ai_tool' => [],
         'prompt_tool' => [],
         'live_url' => [],
+        'deployed_branch' => [],
         'notes' => ['completed' => '', 'next_steps' => ''],
         'updated_at' => null,
     ];
@@ -109,6 +111,7 @@ function saveStoredMetadata(array $metadata): bool {
         'ai_tool' => (array)($metadata['ai_tool'] ?? []),
         'prompt_tool' => (array)($metadata['prompt_tool'] ?? []),
         'live_url' => (array)($metadata['live_url'] ?? []),
+        'deployed_branch' => (array)($metadata['deployed_branch'] ?? []),
         'notes' => [
             'completed' => (string)($metadata['notes']['completed'] ?? ''),
             'next_steps' => (string)($metadata['notes']['next_steps'] ?? ''),
@@ -135,7 +138,7 @@ if ($action === 'metadata' || $action === 'save_metadata' || $action === 'sync_m
             $batchData = $input['metadata'] ?? $input;
             if (is_array($batchData)) {
                 $isFullSync = !empty($input['full_sync']) || ($action === 'save_metadata' && isset($input['metadata']));
-                foreach (['database', 'auth', 'ai_tool', 'prompt_tool', 'live_url'] as $field) {
+                foreach (['database', 'auth', 'ai_tool', 'prompt_tool', 'live_url', 'deployed_branch'] as $field) {
                     if (isset($batchData[$field]) && is_array($batchData[$field])) {
                         if ($isFullSync) {
                             $metadata[$field] = $batchData[$field];
@@ -173,13 +176,14 @@ if ($action === 'metadata' || $action === 'save_metadata' || $action === 'sync_m
         if ($field === 'ai' || $field === 'ai_tools') $field = 'ai_tool';
         if ($field === 'prompt' || $field === 'prompt_tools') $field = 'prompt_tool';
         if ($field === 'custom_live_url' || $field === 'live' || $field === 'live_app') $field = 'live_url';
+        if ($field === 'branch' || $field === 'publish_branch' || $field === 'deploy_branch') $field = 'deployed_branch';
 
-        $validFields = ['database', 'auth', 'ai_tool', 'prompt_tool', 'live_url'];
+        $validFields = ['database', 'auth', 'ai_tool', 'prompt_tool', 'live_url', 'deployed_branch'];
         if (empty($repoName) || !in_array($field, $validFields, true)) {
             http_response_code(400);
             echo json_encode([
                 'success' => false,
-                'error' => 'Invalid parameters. "repo" and a valid "field" (database, auth, ai_tool, prompt_tool, live_url) are required.',
+                'error' => 'Invalid parameters. "repo" and a valid "field" (database, auth, ai_tool, prompt_tool, live_url, deployed_branch) are required.',
                 'code' => 'INVALID_PARAMS',
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
             exit;
@@ -420,6 +424,9 @@ function inspectRepository(string $owner, string $repoName, string $branch, stri
             'pushed_at' => $pushedAt,
             'inspected_at' => date('c'),
             'cached' => false,
+            'branches' => [$targetBranch],
+            'latest_active_branch' => $targetBranch,
+            'pages_branch' => null,
             'database' => [
                 'detected' => false,
                 'type' => 'No',
@@ -761,11 +768,60 @@ function inspectRepository(string $owner, string $repoName, string $branch, stri
         }
     }
 
+    // Fetch repository branches
+    $branchesList = [$targetBranch];
+    $pagesBranch = null;
+    $branchesRes = makeGitHubRequest(sprintf('/repos/%s/%s/branches?per_page=30', urlencode($owner), urlencode($repoName)), $token, $config);
+    if ($branchesRes['status'] === 200) {
+        $branchesData = json_decode($branchesRes['body'], true);
+        if (is_array($branchesData)) {
+            $names = [];
+            foreach ($branchesData as $b) {
+                if (!empty($b['name'])) {
+                    $names[] = $b['name'];
+                }
+            }
+            if (!empty($names)) {
+                $branchesList = $names;
+            }
+        }
+    }
+    if (in_array('gh-pages', $branchesList, true)) {
+        $pagesBranch = 'gh-pages';
+    }
+
+    // Detect latest active branch from recent PushEvents
+    $latestActiveBranch = $targetBranch;
+    $eventsRes = makeGitHubRequest(sprintf('/repos/%s/%s/events?per_page=10', urlencode($owner), urlencode($repoName)), $token, $config);
+    if ($eventsRes['status'] === 200) {
+        $eventsData = json_decode($eventsRes['body'], true);
+        if (is_array($eventsData)) {
+            foreach ($eventsData as $ev) {
+                if (($ev['type'] ?? '') === 'PushEvent') {
+                    $ref = $ev['payload']['ref'] ?? '';
+                    if (strpos($ref, 'refs/heads/') === 0) {
+                        $bName = substr($ref, strlen('refs/heads/'));
+                        if (!empty($bName)) {
+                            $latestActiveBranch = $bName;
+                            if (!in_array($bName, $branchesList, true)) {
+                                $branchesList[] = $bName;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     $inspectionResult = [
         'repo' => $repoName,
         'pushed_at' => $pushedAt,
         'inspected_at' => date('c'),
         'cached' => false,
+        'branches' => $branchesList,
+        'latest_active_branch' => $latestActiveBranch,
+        'pages_branch' => $pagesBranch,
         'database' => [
             'detected' => $dbDetected,
             'type' => $dbType,
@@ -858,6 +914,72 @@ if ($action === 'inspect') {
         'success' => true,
         'inspection' => $inspection,
         'rate_limit' => parseRateLimits($userRes['headers'] ?? []),
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+// If action is fetching / refreshing branches
+if ($action === 'branches') {
+    $repoName = trim($_GET['repo'] ?? '');
+    if (empty($repoName)) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Missing "repo" parameter for branches.',
+            'code' => 'PARAM_MISSING'
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    $owner = trim($_GET['owner'] ?? '') ?: ($userProfile['login'] ?? '');
+    $defaultBranch = trim($_GET['default_branch'] ?? 'main');
+
+    $branchesRes = makeGitHubRequest(sprintf('/repos/%s/%s/branches?per_page=100', urlencode($owner), urlencode($repoName)), $token, $config);
+    $branchesList = [];
+    if ($branchesRes['status'] === 200) {
+        $branchesData = json_decode($branchesRes['body'], true);
+        if (is_array($branchesData)) {
+            foreach ($branchesData as $b) {
+                if (!empty($b['name'])) {
+                    $branchesList[] = $b['name'];
+                }
+            }
+        }
+    }
+    if (empty($branchesList)) {
+        $branchesList = [$defaultBranch];
+    }
+
+    $latestActiveBranch = $defaultBranch;
+    $eventsRes = makeGitHubRequest(sprintf('/repos/%s/%s/events?per_page=10', urlencode($owner), urlencode($repoName)), $token, $config);
+    if ($eventsRes['status'] === 200) {
+        $eventsData = json_decode($eventsRes['body'], true);
+        if (is_array($eventsData)) {
+            foreach ($eventsData as $ev) {
+                if (($ev['type'] ?? '') === 'PushEvent') {
+                    $ref = $ev['payload']['ref'] ?? '';
+                    if (strpos($ref, 'refs/heads/') === 0) {
+                        $bName = substr($ref, strlen('refs/heads/'));
+                        if (!empty($bName)) {
+                            $latestActiveBranch = $bName;
+                            if (!in_array($bName, $branchesList, true)) {
+                                $branchesList[] = $bName;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    echo json_encode([
+        'success' => true,
+        'repo' => $repoName,
+        'default_branch' => $defaultBranch,
+        'latest_active_branch' => $latestActiveBranch,
+        'branches' => $branchesList,
+        'pages_branch' => in_array('gh-pages', $branchesList, true) ? 'gh-pages' : null,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     exit;
 }
@@ -955,6 +1077,7 @@ while ($page <= $maxPages) {
                 'ai_tool' => $currentMetadata['ai_tool'][$repo['name']] ?? ($currentMetadata['ai_tool'][(string)$repo['id']] ?? null),
                 'prompt_tool' => $currentMetadata['prompt_tool'][$repo['name']] ?? ($currentMetadata['prompt_tool'][(string)$repo['id']] ?? null),
                 'live_url' => $currentMetadata['live_url'][$repo['name']] ?? ($currentMetadata['live_url'][(string)$repo['id']] ?? null),
+                'deployed_branch' => $currentMetadata['deployed_branch'][$repo['name']] ?? ($currentMetadata['deployed_branch'][(string)$repo['id']] ?? null),
             ],
             'license' => isset($repo['license']) && is_array($repo['license']) ? [
                 'key' => $repo['license']['key'] ?? '',

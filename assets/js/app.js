@@ -32,9 +32,11 @@
             auth: {},
             ai_tool: {},
             prompt_tool: {},
-            live_url: {}
+            live_url: {},
+            deployed_branch: {}
         },
         editingLiveUrlRepo: null,
+        editingBranchRepo: null,
         hasUnsavedChanges: false,
         isSyncingMetadata: false,
     };
@@ -158,6 +160,13 @@
             const cardAuths = document.querySelectorAll(`div[data-card-auth="${CSS.escape(repoName)}"]`);
             cardAuths.forEach(el => { el.innerHTML = renderAuthCell(repo); });
         }
+
+        // Update branch tracking cells
+        const depCells = document.querySelectorAll(`td[data-cell-dep-branch="${CSS.escape(repoName)}"]`);
+        depCells.forEach(cell => { cell.innerHTML = renderDeployedBranchCell(repo); });
+
+        const actCells = document.querySelectorAll(`td[data-cell-act-branch="${CSS.escape(repoName)}"]`);
+        actCells.forEach(cell => { cell.innerHTML = renderLatestActiveBranchCell(repo); });
     }
 
     /**
@@ -277,6 +286,17 @@
         }
     }
 
+    const DEPLOYED_BRANCH_STORAGE_KEY = 'all_repos_deployed_branches';
+
+    function getDeployedBranchesMap() {
+        try {
+            const stored = localStorage.getItem(DEPLOYED_BRANCH_STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
     /**
      * Save current state.metadata to browser localStorage
      */
@@ -287,6 +307,7 @@
             localStorage.setItem(AI_TOOLS_STORAGE_KEY, JSON.stringify(state.metadata.ai_tool || {}));
             localStorage.setItem(PROMPT_TOOLS_STORAGE_KEY, JSON.stringify(state.metadata.prompt_tool || {}));
             localStorage.setItem(LIVE_URLS_STORAGE_KEY, JSON.stringify(state.metadata.live_url || {}));
+            localStorage.setItem(DEPLOYED_BRANCH_STORAGE_KEY, JSON.stringify(state.metadata.deployed_branch || {}));
         } catch (e) {
             console.error('Failed to save metadata to localStorage:', e);
         }
@@ -301,6 +322,7 @@
         state.metadata.ai_tool = getAiToolsMap();
         state.metadata.prompt_tool = getPromptToolsMap();
         state.metadata.live_url = getCustomLiveUrlsMap();
+        state.metadata.deployed_branch = getDeployedBranchesMap();
     }
 
     /**
@@ -316,12 +338,14 @@
         const localAi = getAiToolsMap();
         const localPrompt = getPromptToolsMap();
         const localLiveUrl = getCustomLiveUrlsMap();
+        const localBranch = getDeployedBranchesMap();
 
         const sDb = (serverMetadata && serverMetadata.database) || {};
         const sAuth = (serverMetadata && serverMetadata.auth) || {};
         const sAi = (serverMetadata && serverMetadata.ai_tool) || {};
         const sPrompt = (serverMetadata && serverMetadata.prompt_tool) || {};
         const sLiveUrl = (serverMetadata && (serverMetadata.live_url || serverMetadata.custom_live_url)) || {};
+        const sBranch = (serverMetadata && serverMetadata.deployed_branch) || {};
 
         // Merge: combine local and server, preserving all explicit entries
         state.metadata.database = { ...localDb, ...sDb };
@@ -329,6 +353,7 @@
         state.metadata.ai_tool = { ...localAi, ...sAi };
         state.metadata.prompt_tool = { ...localPrompt, ...sPrompt };
         state.metadata.live_url = { ...localLiveUrl, ...sLiveUrl };
+        state.metadata.deployed_branch = { ...localBranch, ...sBranch };
 
         // Also check if any repository entity from API has embedded user_metadata
         if (Array.isArray(state.repositories)) {
@@ -355,6 +380,10 @@
                     if (repo.user_metadata.live_url !== null && repo.user_metadata.live_url !== undefined) {
                         if (state.metadata.live_url[name] === undefined) state.metadata.live_url[name] = repo.user_metadata.live_url;
                         if (id && state.metadata.live_url[id] === undefined) state.metadata.live_url[id] = repo.user_metadata.live_url;
+                    }
+                    if (repo.user_metadata.deployed_branch !== null && repo.user_metadata.deployed_branch !== undefined) {
+                        if (state.metadata.deployed_branch[name] === undefined) state.metadata.deployed_branch[name] = repo.user_metadata.deployed_branch;
+                        if (id && state.metadata.deployed_branch[id] === undefined) state.metadata.deployed_branch[id] = repo.user_metadata.deployed_branch;
                     }
                 }
             });
@@ -385,9 +414,9 @@
 
         // Check if client had local selections that the server file was missing
         let hasUnsyncedKeys = false;
-        ['database', 'auth', 'ai_tool', 'prompt_tool', 'live_url'].forEach(field => {
-            const local = field === 'database' ? localDb : (field === 'auth' ? localAuth : (field === 'ai_tool' ? localAi : (field === 'prompt_tool' ? localPrompt : localLiveUrl)));
-            const server = field === 'database' ? sDb : (field === 'auth' ? sAuth : (field === 'ai_tool' ? sAi : (field === 'prompt_tool' ? sPrompt : sLiveUrl)));
+        ['database', 'auth', 'ai_tool', 'prompt_tool', 'live_url', 'deployed_branch'].forEach(field => {
+            const local = field === 'database' ? localDb : (field === 'auth' ? localAuth : (field === 'ai_tool' ? localAi : (field === 'prompt_tool' ? localPrompt : (field === 'live_url' ? localLiveUrl : localBranch))));
+            const server = field === 'database' ? sDb : (field === 'auth' ? sAuth : (field === 'ai_tool' ? sAi : (field === 'prompt_tool' ? sPrompt : (field === 'live_url' ? sLiveUrl : sBranch))));
             for (const k in local) {
                 if (local[k] !== undefined && server[k] === undefined) {
                     hasUnsyncedKeys = true;
@@ -462,6 +491,7 @@
                 ai_tool: state.metadata.ai_tool || {},
                 prompt_tool: state.metadata.prompt_tool || {},
                 live_url: state.metadata.live_url || {},
+                deployed_branch: state.metadata.deployed_branch || {},
                 notes: {
                     completed: completedNotes,
                     next_steps: nextStepsNotes
@@ -1043,6 +1073,331 @@
     }
 
     /**
+     * Retrieve Deployed Branch info for a repository:
+     * Returns: { branch: string, isCustom: boolean, isPages: boolean, defaultBranch: string }
+     */
+    function getRepoDeployedBranchInfo(repo) {
+        if (!repo) return { branch: 'main', isCustom: false, isPages: false, defaultBranch: 'main' };
+        const defaultBranch = repo.default_branch || 'main';
+        const customVal = getMetadataValue(state.metadata.deployed_branch, repo);
+
+        if (customVal && typeof customVal === 'string' && customVal.trim()) {
+            return {
+                branch: customVal.trim(),
+                isCustom: true,
+                isPages: false,
+                defaultBranch: defaultBranch
+            };
+        }
+
+        const repoName = typeof repo === 'string' ? repo : repo.name;
+        const inspection = (repoName && state.inspections[repoName]) || (typeof repo === 'object' && repo ? repo.inspection : null);
+        if (inspection && inspection.pages_branch) {
+            return {
+                branch: inspection.pages_branch,
+                isCustom: false,
+                isPages: true,
+                defaultBranch: defaultBranch
+            };
+        }
+
+        return {
+            branch: defaultBranch,
+            isCustom: false,
+            isPages: false,
+            defaultBranch: defaultBranch
+        };
+    }
+
+    /**
+     * Retrieve the effective deployed branch name
+     */
+    function getRepoDeployedBranch(repo) {
+        return getRepoDeployedBranchInfo(repo).branch;
+    }
+
+    /**
+     * Retrieve latest active branch (from GitHub events or default branch)
+     */
+    function getRepoLatestActiveBranch(repo) {
+        if (!repo) return 'main';
+        const repoName = typeof repo === 'string' ? repo : repo.name;
+        const inspection = (repoName && state.inspections[repoName]) || (typeof repo === 'object' && repo ? repo.inspection : null);
+        if (inspection && inspection.latest_active_branch) {
+            return inspection.latest_active_branch;
+        }
+        return repo.default_branch || 'main';
+    }
+
+    /**
+     * Collect known and common branches for dropdown options
+     */
+    function getRepoKnownBranches(repo) {
+        if (!repo) return ['main'];
+        const repoName = typeof repo === 'string' ? repo : repo.name;
+        const defaultBranch = repo.default_branch || 'main';
+        const inspection = (repoName && state.inspections[repoName]) || (typeof repo === 'object' && repo ? repo.inspection : null);
+
+        const list = new Set();
+        list.add(defaultBranch);
+
+        if (inspection && Array.isArray(inspection.branches)) {
+            inspection.branches.forEach(b => {
+                if (b && typeof b === 'string') list.add(b.trim());
+            });
+        }
+
+        // Standard conventions
+        ['main', 'master', 'production', 'gh-pages', 'release', 'develop'].forEach(b => list.add(b));
+
+        const current = getRepoDeployedBranch(repo);
+        if (current) list.add(current);
+
+        return Array.from(list);
+    }
+
+    /**
+     * Set or clear custom deployed branch for a repository
+     */
+    function setRepoDeployedBranch(repoName, branchName, repoId) {
+        try {
+            const cleaned = (branchName || '').trim();
+            setMetadataField('deployed_branch', repoName, cleaned, repoId);
+
+            const targetRepo = state.repositories.find(r => r.name === repoName || (repoId && r.id === repoId));
+            if (targetRepo && targetRepo.user_metadata) {
+                targetRepo.user_metadata.deployed_branch = cleaned || null;
+            }
+
+            updateRepoBranchDOM(repoName, targetRepo || { name: repoName, id: repoId });
+
+            if (cleaned) {
+                showToast(`Deployed branch for "${repoName}" set to "${cleaned}".`, 'success');
+            } else {
+                showToast(`Deployed branch for "${repoName}" reset to default.`, 'info');
+            }
+        } catch (e) {
+            console.error('Failed to set deployed branch:', e);
+            showToast('Failed to save deployed branch.', 'error');
+        }
+    }
+
+    /**
+     * Update branch cells in DOM across list, grid, and modal
+     */
+    function updateRepoBranchDOM(repoName, repo) {
+        const depCells = document.querySelectorAll(`[data-cell-dep-branch="${CSS.escape(repoName)}"]`);
+        depCells.forEach(cell => {
+            cell.outerHTML = renderDeployedBranchCell(repo);
+        });
+
+        const actCells = document.querySelectorAll(`[data-cell-act-branch="${CSS.escape(repoName)}"]`);
+        actCells.forEach(cell => {
+            cell.outerHTML = renderLatestActiveBranchCell(repo);
+        });
+
+        if (state.viewMode === 'grid') {
+            renderGridView();
+        }
+    }
+
+    /**
+     * Render Deployed Branch table cell with inline dropdown and custom override pencil
+     */
+    function renderDeployedBranchCell(repo) {
+        const info = getRepoDeployedBranchInfo(repo);
+        const repoNameEsc = escapeHtml(repo.name);
+        const repoId = repo.id || 0;
+        const currentBranch = info.branch;
+        const knownBranches = getRepoKnownBranches(repo);
+
+        let borderClass = 'border-[#30363d] text-[#c9d1d9]';
+        if (info.isCustom) {
+            borderClass = 'border-[#a371f7]/60 text-[#d2a8ff] bg-[#221735]';
+        } else if (info.isPages) {
+            borderClass = 'border-[#388bfd]/50 text-[#79c0ff] bg-[#102038]';
+        }
+
+        return `
+            <div class="flex items-center gap-1.5" data-cell-dep-branch="${repoNameEsc}">
+                <div class="relative inline-flex items-center">
+                    <select data-repo-branch-name="${repoNameEsc}"
+                            data-repo-branch-id="${repoId}"
+                            onchange="window.handleDeployedBranchSelectChange('${repoNameEsc}', this.value, ${repoId})"
+                            class="bg-[#161b22] ${borderClass} focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] rounded-md px-2 py-1 text-xs outline-none cursor-pointer transition shadow-sm font-mono max-w-[130px] truncate"
+                            title="Deployed Branch: ${escapeHtml(currentBranch)}${info.isCustom ? ' (Custom Override)' : (info.isPages ? ' (GitHub Pages)' : ' (Default)')}">
+                        ${knownBranches.map(b => `
+                            <option value="${escapeHtml(b)}" class="bg-[#161b22] text-[#e6edf3]" ${currentBranch === b ? 'selected' : ''}>
+                                ${escapeHtml(b)}${b === repo.default_branch ? ' *' : ''}
+                            </option>
+                        `).join('')}
+                        <option value="__CUSTOM__" class="bg-[#21262d] text-[#58a6ff] font-sans">+ Custom...</option>
+                    </select>
+                </div>
+                ${info.isCustom ? `<span class="text-[9px] px-1 py-0.5 rounded bg-[#a371f7]/20 text-[#d2a8ff] border border-[#a371f7]/30 select-none" title="Custom branch override">Custom</span>` : ''}
+                <button type="button" 
+                        onclick="window.editDeployedBranch('${repoNameEsc}', ${repoId})" 
+                        class="p-1 rounded text-[#8b949e] hover:text-[#58a6ff] hover:bg-[#21262d] transition" 
+                        title="Set custom branch name or reset to default">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                </button>
+            </div>
+        `;
+    }
+
+    /**
+     * Render Latest Active Branch table cell with comparison badge
+     */
+    function renderLatestActiveBranchCell(repo) {
+        const repoNameEsc = escapeHtml(repo.name);
+        const depInfo = getRepoDeployedBranchInfo(repo);
+        const activeBranch = getRepoLatestActiveBranch(repo);
+        const isMatching = (activeBranch === depInfo.branch);
+
+        if (isMatching) {
+            return `
+                <div class="inline-flex items-center gap-1.5" data-cell-act-branch="${repoNameEsc}">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-[#161b22] text-[#3fb950] border border-[#238636]/40 select-none shadow-sm" 
+                          title="Latest push matches deployed branch (${escapeHtml(activeBranch)})">
+                        <svg class="w-3 h-3 text-[#3fb950]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/></svg>
+                        <span>${escapeHtml(activeBranch)}</span>
+                        <svg class="w-2.5 h-2.5 text-[#3fb950] ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                    </span>
+                </div>
+            `;
+        } else {
+            return `
+                <div class="inline-flex items-center gap-1.5" data-cell-act-branch="${repoNameEsc}">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-[#2a1708] text-[#f0883e] border border-[#f0883e]/50 select-none shadow-sm" 
+                          title="Recent activity detected on different branch: ${escapeHtml(activeBranch)} (Deployed is: ${escapeHtml(depInfo.branch)})">
+                        <svg class="w-3 h-3 text-[#f0883e]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/></svg>
+                        <span>${escapeHtml(activeBranch)}</span>
+                        <span class="text-[9px] bg-[#f0883e]/25 text-[#f0883e] border border-[#f0883e]/40 px-1 rounded font-sans ml-0.5 animate-pulse">Active</span>
+                    </span>
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * Open Set Deployed Branch Modal Dialog
+     */
+    function openBranchModal(repoName, repoId) {
+        const repo = state.repositories.find(r => r.name === repoName || (repoId && r.id === repoId));
+        if (!repo) return;
+
+        state.editingBranchRepo = { name: repo.name, id: repo.id };
+
+        if (elements.branchModalRepoName) {
+            elements.branchModalRepoName.textContent = repo.full_name || repo.name;
+        }
+
+        const info = getRepoDeployedBranchInfo(repo);
+        const defaultBranch = repo.default_branch || 'main';
+
+        if (elements.branchInput) {
+            elements.branchInput.value = info.isCustom ? info.branch : '';
+        }
+
+        if (elements.branchDefaultValue) {
+            elements.branchDefaultValue.textContent = defaultBranch;
+        }
+
+        if (elements.resetBranchBtn) {
+            if (info.isCustom) {
+                elements.resetBranchBtn.classList.remove('hidden');
+            } else {
+                elements.resetBranchBtn.classList.add('hidden');
+            }
+        }
+
+        // Render quick suggestion pills
+        if (elements.branchQuickPills) {
+            const known = getRepoKnownBranches(repo);
+            elements.branchQuickPills.innerHTML = known.map(b => `
+                <button type="button" 
+                        onclick="window.selectBranchPill('${escapeHtml(b)}')"
+                        class="px-2 py-0.5 rounded text-xs font-mono bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white border border-[#30363d] hover:border-[#58a6ff] transition">
+                    ${escapeHtml(b)}
+                </button>
+            `).join('');
+        }
+
+        if (elements.branchModal) {
+            elements.branchModal.classList.remove('hidden');
+            setTimeout(() => {
+                if (elements.branchInput) {
+                    elements.branchInput.focus();
+                    elements.branchInput.select();
+                }
+            }, 50);
+        }
+    }
+
+    /**
+     * Close Set Deployed Branch Modal Dialog
+     */
+    function closeBranchModal() {
+        if (elements.branchModal) {
+            elements.branchModal.classList.add('hidden');
+        }
+        state.editingBranchRepo = null;
+    }
+
+    /**
+     * Handle Deployed Branch Form Submission
+     */
+    function handleBranchFormSubmit(e) {
+        if (e && typeof e.preventDefault === 'function') {
+            e.preventDefault();
+        }
+        if (!state.editingBranchRepo) return;
+        const val = elements.branchInput ? elements.branchInput.value.trim() : '';
+        setRepoDeployedBranch(state.editingBranchRepo.name, val, state.editingBranchRepo.id);
+        closeBranchModal();
+    }
+
+    /**
+     * Handle Reset Deployed Branch to Default
+     */
+    function handleResetBranch() {
+        if (!state.editingBranchRepo) return;
+        setRepoDeployedBranch(state.editingBranchRepo.name, '', state.editingBranchRepo.id);
+        closeBranchModal();
+    }
+
+    /**
+     * Handle quick branch selection pill in branch modal
+     */
+    function selectBranchPill(branchName) {
+        if (elements.branchInput) {
+            elements.branchInput.value = branchName;
+            elements.branchInput.focus();
+        }
+    }
+
+    /**
+     * Handle Deployed Branch select dropdown change
+     */
+    function handleDeployedBranchSelectChange(repoName, val, repoId) {
+        if (val === '__CUSTOM__') {
+            openBranchModal(repoName, repoId);
+            const repo = state.repositories.find(r => r.name === repoName || (repoId && r.id === repoId));
+            if (repo) {
+                updateRepoBranchDOM(repo);
+            }
+            return;
+        }
+        const repo = state.repositories.find(r => r.name === repoName || (repoId && r.id === repoId));
+        const defaultBranch = repo ? (repo.default_branch || 'main') : 'main';
+        if (val === defaultBranch) {
+            setRepoDeployedBranch(repoName, '', repoId);
+        } else {
+            setRepoDeployedBranch(repoName, val, repoId);
+        }
+    }
+
+    /**
      * Retrieve AI tool assigned to a given repository (by name or ID)
      */
     function getRepoAiTool(repo) {
@@ -1513,6 +1868,18 @@
         resetLiveUrlBtn: document.getElementById('resetLiveUrlBtn'),
         cancelLiveUrlBtn: document.getElementById('cancelLiveUrlBtn'),
         saveLiveUrlBtn: document.getElementById('saveLiveUrlBtn'),
+        // Edit Deployed Branch Modal
+        branchModal: document.getElementById('branchModal'),
+        branchModalBackdrop: document.getElementById('branchModalBackdrop'),
+        branchModalRepoName: document.getElementById('branchModalRepoName'),
+        closeBranchModalBtn: document.getElementById('closeBranchModalBtn'),
+        branchForm: document.getElementById('branchForm'),
+        branchInput: document.getElementById('branchInput'),
+        branchQuickPills: document.getElementById('branchQuickPills'),
+        branchDefaultValue: document.getElementById('branchDefaultValue'),
+        resetBranchBtn: document.getElementById('resetBranchBtn'),
+        cancelBranchBtn: document.getElementById('cancelBranchBtn'),
+        saveBranchBtn: document.getElementById('saveBranchBtn'),
         // Stat Counters
         statTotalRepos: document.getElementById('statTotalRepos'),
         statShowingRepos: document.getElementById('statShowingRepos'),
@@ -1895,8 +2262,10 @@
                 const techStack = (inspection && inspection.tech_stack && inspection.tech_stack.name ? inspection.tech_stack.name : '').toLowerCase();
                 const dbInfo = (inspection && inspection.database && inspection.database.detected ? (inspection.database.type + ' ' + (inspection.database.evidence || '')) : '').toLowerCase();
                 const authInfo = (inspection && inspection.auth && inspection.auth.detected ? ('auth login authentication ' + (inspection.auth.evidence || '')) : '').toLowerCase();
+                const depBranch = (getRepoDeployedBranch(repo) || '').toLowerCase();
+                const actBranch = (getRepoLatestActiveBranch(repo) || '').toLowerCase();
 
-                return name.includes(q) || desc.includes(q) || lang.includes(q) || topics.includes(q) || aiTool.includes(q) || promptTool.includes(q) || dbTracker.includes(q) || authStatus.includes(q) || techStack.includes(q) || dbInfo.includes(q) || authInfo.includes(q);
+                return name.includes(q) || desc.includes(q) || lang.includes(q) || topics.includes(q) || aiTool.includes(q) || promptTool.includes(q) || dbTracker.includes(q) || authStatus.includes(q) || techStack.includes(q) || dbInfo.includes(q) || authInfo.includes(q) || depBranch.includes(q) || actBranch.includes(q);
             });
         }
 
@@ -2109,6 +2478,23 @@
                                 <span class="text-[#8b949e] font-medium">Auth:</span>
                                 <div data-card-auth="${escapeHtml(repo.name)}">${renderAuthCell(repo)}</div>
                             </div>
+                    </div>
+
+                    <!-- Branch Tracking: Deployed Branch & Latest Active Branch -->
+                    <div class="grid grid-cols-2 gap-2 p-2 bg-[#0d1117] rounded-lg border border-[#21262d] text-xs">
+                        <div class="flex flex-col gap-1 min-w-0">
+                            <span class="text-[#8b949e] font-medium text-[11px] flex items-center gap-1">
+                                <svg class="w-3 h-3 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                                <span>Deployed:</span>
+                            </span>
+                            <div data-cell-dep-branch="${escapeHtml(repo.name)}">${renderDeployedBranchCell(repo)}</div>
+                        </div>
+                        <div class="flex flex-col gap-1 min-w-0">
+                            <span class="text-[#8b949e] font-medium text-[11px] flex items-center gap-1">
+                                <svg class="w-3 h-3 text-[#3fb950]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                <span>Recent:</span>
+                            </span>
+                            <div data-cell-act-branch="${escapeHtml(repo.name)}">${renderLatestActiveBranchCell(repo)}</div>
                         </div>
                     </div>
 
@@ -2255,6 +2641,16 @@
                     ${renderLiveAppCell(repo)}
                 </td>
 
+                <!-- Deployed Branch Column -->
+                <td class="py-3 px-4 whitespace-nowrap" data-cell-dep-branch="${escapeHtml(repo.name)}">
+                    ${renderDeployedBranchCell(repo)}
+                </td>
+
+                <!-- Latest Active Branch Column -->
+                <td class="py-3 px-4 whitespace-nowrap" data-cell-act-branch="${escapeHtml(repo.name)}">
+                    ${renderLatestActiveBranchCell(repo)}
+                </td>
+
                 <!-- Tech Stack Column -->
                 <td class="py-3 px-4 whitespace-nowrap" data-cell-tech="${escapeHtml(repo.name)}">
                     ${renderTechStackCell(repo)}
@@ -2323,12 +2719,14 @@
 
         elements.repoList.innerHTML = `
         <div class="overflow-x-auto border border-[#30363d] rounded-xl bg-[#0d1117] shadow-sm">
-            <table class="w-full text-left border-collapse min-w-[1450px]">
+            <table class="w-full text-left border-collapse min-w-[1720px]">
                 <thead>
                     <tr class="bg-[#161b22] border-b border-[#30363d] text-xs font-semibold text-[#8b949e]">
                         <th class="py-3 px-4">Repository</th>
                         <th class="py-3 px-4">Language</th>
                         <th class="py-3 px-4">Live App</th>
+                        <th class="py-3 px-4">Deployed Branch</th>
+                        <th class="py-3 px-4">Recent Branch</th>
                         <th class="py-3 px-4">Tech Stack</th>
                         <th class="py-3 px-4">Database</th>
                         <th class="py-3 px-4">Auth / Login</th>
@@ -2724,6 +3122,23 @@
             elements.resetLiveUrlBtn.addEventListener('click', handleResetLiveUrl);
         }
 
+        // Deployed Branch Modal events
+        if (elements.closeBranchModalBtn) {
+            elements.closeBranchModalBtn.addEventListener('click', closeBranchModal);
+        }
+        if (elements.cancelBranchBtn) {
+            elements.cancelBranchBtn.addEventListener('click', closeBranchModal);
+        }
+        if (elements.branchModalBackdrop) {
+            elements.branchModalBackdrop.addEventListener('click', closeBranchModal);
+        }
+        if (elements.branchForm) {
+            elements.branchForm.addEventListener('submit', handleBranchFormSubmit);
+        }
+        if (elements.resetBranchBtn) {
+            elements.resetBranchBtn.addEventListener('click', handleResetBranch);
+        }
+
         // Work Notes Drawer events
         if (elements.notesToggleBtn) {
             elements.notesToggleBtn.addEventListener('click', openNotesDrawer);
@@ -2763,6 +3178,10 @@
 
             // Esc to close notes drawer or modal
             if (e.key === 'Escape') {
+                if (elements.branchModal && !elements.branchModal.classList.contains('hidden')) {
+                    closeBranchModal();
+                    return;
+                }
                 if (elements.liveUrlModal && !elements.liveUrlModal.classList.contains('hidden')) {
                     closeLiveUrlModal();
                     return;
@@ -2869,6 +3288,18 @@
 
     window.editLiveUrl = function (repoName, repoId) {
         openLiveUrlModal(repoName, repoId);
+    };
+
+    window.handleDeployedBranchSelectChange = function (name, val, id) {
+        handleDeployedBranchSelectChange(name, val, id);
+    };
+
+    window.editDeployedBranch = function (name, id) {
+        openBranchModal(name, id);
+    };
+
+    window.selectBranchPill = function (branch) {
+        selectBranchPill(branch);
     };
 
     window.syncAllMetadata = function () {

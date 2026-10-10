@@ -677,6 +677,72 @@
         </div>
     </div>
 
+    <!-- Edit Deployed Branch Modal Dialog -->
+    <div id="branchModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <!-- Backdrop -->
+        <div id="branchModalBackdrop" class="fixed inset-0 bg-black/75 backdrop-blur-sm transition-opacity"></div>
+        <!-- Modal Card -->
+        <div class="relative bg-[#161b22] border border-[#30363d] rounded-2xl shadow-2xl max-w-md w-full p-6 z-10 space-y-4">
+            <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-lg bg-[#a371f7]/20 border border-[#a371f7]/40 text-[#d2a8ff]">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white tracking-tight">Set Deployed Branch</h3>
+                        <p id="branchModalRepoName" class="text-xs text-[#8b949e] font-mono"></p>
+                    </div>
+                </div>
+                <button id="closeBranchModalBtn" type="button" class="p-1.5 rounded-lg text-[#8b949e] hover:text-white hover:bg-[#21262d] transition" title="Close (Esc)">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <form id="branchForm" onsubmit="return false;" class="space-y-4">
+                <div>
+                    <label for="branchInput" class="block text-xs font-semibold text-[#c9d1d9] mb-1.5">
+                        Production / Deployed Branch Name
+                    </label>
+                    <input type="text" id="branchInput" 
+                           class="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-sm text-[#e6edf3] placeholder-[#8b949e] focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] focus:outline-none transition font-mono"
+                           placeholder="main, production, gh-pages, release..."
+                           autocomplete="off" spellcheck="false">
+                    <p class="text-[11px] text-[#8b949e] mt-1.5">
+                        Enter any branch name or pick from detected branches below. Leave empty to fall back to GitHub default branch.
+                    </p>
+                </div>
+
+                <!-- Quick Selection Suggestions -->
+                <div id="branchQuickPillsContainer" class="space-y-1.5">
+                    <span class="text-xs text-[#8b949e] font-medium">Quick suggestions:</span>
+                    <div id="branchQuickPills" class="flex flex-wrap gap-1.5"></div>
+                </div>
+
+                <div id="branchDefaultInfo" class="text-xs text-[#8b949e] bg-[#0d1117] p-2.5 rounded-lg border border-[#30363d] space-y-1">
+                    <div class="text-[#c9d1d9] font-medium flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span>GitHub Default Branch</span>
+                    </div>
+                    <p id="branchDefaultValue" class="font-mono text-[11px] truncate text-[#8b949e]">main</p>
+                </div>
+
+                <div class="flex items-center justify-between gap-2 pt-2 border-t border-[#30363d]">
+                    <button id="resetBranchBtn" type="button" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold text-[#f85149] hover:bg-[#da3633]/20 border border-[#f85149]/40 transition">
+                        Reset to Default
+                    </button>
+                    <div class="flex items-center gap-2 ml-auto">
+                        <button id="cancelBranchBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] border border-[#30363d] transition">
+                            Cancel
+                        </button>
+                        <button id="saveBranchBtn" type="submit" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white shadow transition">
+                            Save Branch
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Work Notes & Progress Side Drawer -->
     <div id="notesDrawer" class="fixed inset-0 z-50 pointer-events-none transition-visibility duration-300 invisible">
         <!-- Backdrop -->
