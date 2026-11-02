@@ -478,6 +478,14 @@
                         <span>Copy All Visible Names</span>
                     </button>
 
+                    <!-- Export to CSV / Excel Button -->
+                    <button id="exportCsvBtn" 
+                            class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-[#1f6feb]/20 hover:bg-[#1f6feb]/35 text-[#58a6ff] border border-[#388bfd]/40 transition active:scale-95 shadow-sm"
+                            title="Export all currently visible repositories and metadata to CSV (Excel compatible)">
+                        <svg class="w-4 h-4 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <span>Export CSV / Excel</span>
+                    </button>
+
                     <!-- Batch Dropdown Menu for Clone URLs -->
                     <div class="relative inline-block text-left">
                         <button id="batchMenuBtn" 
@@ -486,6 +494,11 @@
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         </button>
                         <div id="batchMenuDropdown" class="hidden absolute right-0 mt-1.5 w-56 rounded-lg bg-[#161b22] border border-[#30363d] shadow-xl z-20 py-1 text-xs">
+                            <button onclick="window.exportReposToCsv()" class="w-full text-left px-4 py-2.5 text-[#e6edf3] hover:bg-[#21262d] flex items-center gap-2">
+                                <svg class="w-4 h-4 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                <span>Export to Excel / CSV</span>
+                            </button>
+                            <div class="border-t border-[#21262d] my-1"></div>
                             <button onclick="window.copyAllVisibleRepoLinks()" class="w-full text-left px-4 py-2.5 text-[#e6edf3] hover:bg-[#21262d] flex items-center gap-2">
                                 <svg class="w-4 h-4 text-[#58a6ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                                 <span>Copy All GitHub URLs</span>

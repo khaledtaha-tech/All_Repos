@@ -1843,6 +1843,7 @@
         viewModeGrid: document.getElementById('viewModeGrid'),
         viewModeList: document.getElementById('viewModeList'),
         copyAllNamesBtn: document.getElementById('copyAllNamesBtn'),
+        exportCsvBtn: document.getElementById('exportCsvBtn'),
         batchMenuBtn: document.getElementById('batchMenuBtn'),
         batchMenuDropdown: document.getElementById('batchMenuDropdown'),
         refreshBtn: document.getElementById('refreshBtn'),
@@ -2786,6 +2787,152 @@
     }
 
     /**
+     * Escape special characters for CSV compliance (RFC 4180)
+     */
+    function escapeCsvValue(val) {
+        if (val === null || val === undefined) return '""';
+        const str = String(val);
+        return '"' + str.replace(/"/g, '""') + '"';
+    }
+
+    /**
+     * Export all currently filtered repositories and rich metadata to Excel-ready CSV
+     */
+    function exportReposToCsv() {
+        if (!state.filteredRepositories || state.filteredRepositories.length === 0) {
+            showToast('No repositories match current filters to export.', 'error');
+            return;
+        }
+
+        const headers = [
+            'Repository Name',
+            'Description',
+            'GitHub URL',
+            'Visibility',
+            'Is Fork',
+            'Primary Language',
+            'Live App URL',
+            'Live App Custom Override',
+            'Deployed Branch',
+            'Deployed Branch Type',
+            'Recent Active Branch',
+            'Branch Parity',
+            'Tech Stack',
+            'Database',
+            'Auth / Login',
+            'AI Dev / Tool',
+            'Prompt / Explainer',
+            'Stars',
+            'Forks',
+            'Size (KB)',
+            'Topics',
+            'Created At',
+            'Updated At',
+            'Pushed At'
+        ];
+
+        const rows = state.filteredRepositories.map(repo => {
+            const liveInfo = getRepoEffectiveLiveUrl(repo);
+            const depInfo = getRepoDeployedBranchInfo(repo);
+            const activeBranch = getRepoLatestActiveBranch(repo);
+            const inspection = state.inspections[repo.name] || repo.inspection;
+
+            let techStack = 'None';
+            if (inspection && inspection.tech_stack && inspection.tech_stack.name && inspection.tech_stack.name !== 'None') {
+                techStack = inspection.tech_stack.name;
+            } else if (repo.language) {
+                techStack = repo.language;
+            }
+
+            let dbVal = getRepoDbTracker(repo);
+            if (!dbVal || dbVal === 'none') {
+                if (inspection && inspection.database && inspection.database.detected) {
+                    dbVal = inspection.database.type;
+                } else {
+                    dbVal = 'None';
+                }
+            }
+
+            let authVal = getRepoAuthStatus(repo);
+            if (!authVal || authVal === 'None') {
+                if (inspection && inspection.auth && inspection.auth.detected) {
+                    authVal = 'Detected';
+                } else {
+                    authVal = 'None';
+                }
+            }
+
+            let aiVal = getRepoAiTool(repo);
+            if (!aiVal || aiVal === 'none') aiVal = 'None';
+
+            let promptVal = getRepoPromptTool(repo);
+            if (!promptVal || promptVal === 'none') promptVal = 'None';
+
+            const isMatchingBranch = (activeBranch === depInfo.branch);
+            const branchStatus = isMatchingBranch ? 'Match (Synced)' : 'Active (Different Branch)';
+            const depType = depInfo.isCustom ? 'Custom Override' : (depInfo.isPages ? 'GitHub Pages' : 'Default Branch');
+
+            return [
+                repo.name || '',
+                repo.description || '',
+                repo.html_url || '',
+                repo.private ? 'Private' : 'Public',
+                repo.fork ? 'Yes' : 'No',
+                repo.language || 'Unspecified',
+                liveInfo.url || '',
+                liveInfo.isCustom ? 'Yes' : 'No',
+                depInfo.branch || '',
+                depType,
+                activeBranch || '',
+                branchStatus,
+                techStack,
+                dbVal,
+                authVal,
+                aiVal,
+                promptVal,
+                repo.stargazers_count !== undefined ? repo.stargazers_count : 0,
+                repo.forks_count !== undefined ? repo.forks_count : 0,
+                repo.size !== undefined ? repo.size : 0,
+                (repo.topics || []).join(', '),
+                repo.created_at || '',
+                repo.updated_at || '',
+                repo.pushed_at || ''
+            ];
+        });
+
+        const csvLines = [headers.map(escapeCsvValue).join(',')];
+        rows.forEach(r => {
+            csvLines.push(r.map(escapeCsvValue).join(','));
+        });
+
+        // Prepend UTF-8 BOM (﻿) to guarantee proper UTF-8 decoding in Microsoft Excel
+        const csvString = '\uFEFF' + csvLines.join('\r\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const dateStr = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+        const timeStr = pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+        const filename = 'all_repos_export_' + dateStr + '_' + timeStr + '.csv';
+
+        if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+            window.navigator.msSaveOrOpenBlob(blob, filename);
+        } else {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 300);
+        }
+
+        showToast('Exported ' + rows.length + ' repositories to CSV!', 'success');
+    }
+
+    /**
      * Open Repository Details Modal
      */
     function openRepoModal(repoId) {
@@ -3072,6 +3219,13 @@
             copyAllVisibleNames();
         });
 
+        // Export to Excel / CSV
+        if (elements.exportCsvBtn) {
+            elements.exportCsvBtn.addEventListener('click', () => {
+                exportReposToCsv();
+            });
+        }
+
         // Batch Menu toggle
         if (elements.batchMenuBtn && elements.batchMenuDropdown) {
             elements.batchMenuBtn.addEventListener('click', (e) => {
@@ -3265,6 +3419,10 @@
 
     window.copyAllVisibleRepoLinks = function () {
         copyAllVisibleRepoUrls();
+    };
+
+    window.exportReposToCsv = function () {
+        exportReposToCsv();
     };
 
     window.openRepoModal = function (repoId) {
