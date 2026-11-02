@@ -1,25 +1,41 @@
-# Project Status & Environment Audit (Commit f670c54)
+# Detailed Release Walkthrough (Commit 6c8fb6e)
 
 ### 1. Quick Egyptian Arabic Summary
-تم فحص حالة المشروع بالكامل في المسار الجديد D:\GitHub_Projects\All_Repos وعلى جيت هب، وجميع الملفات متزامنة بنسبة 100%.
-شجرة العمل نظيفة تماماً ولا توجد أي تعديلات معلقة أو ملفات غير متتبعة، والفروع متطابقة مع origin/main على أحدث كوميت f670c54.
+تمت إضافة ميزة تصدير بيانات المستودعات بالكامل إلى ملفات Excel / CSV بضغطة واحدة من شريط الأدوات العلوي مع دعم كامل للتصفية الحالية.
+الملف بيشمل كل الأعمدة والمعلومات المكتشفة والمعدلة (روابط التطبيقات، الفروع، قواعد البيانات، أدوات الذكاء الاصطناعي) مع ترميز UTF-8 BOM علشان يفتح في Microsoft Excel بدون أي تشويه للحروف.
 
-### 2. Workspace & Environment Diagnostics
-- **Local Directory**: `D:\GitHub_Projects\All_Repos` (Verified valid & active)
-- **Active Git Branch**: `main`
-- **Remote Origin URL**: `https://github.com/khaledtaha-tech/All_Repos.git`
-- **Synchronization State**: Fully up to date with `origin/main` (0 ahead, 0 behind after `git fetch`)
-- **Working Tree Status**: Clean (0 modified, 0 untracked, 0 staged)
+### 2. High-Level Architecture & Strategic Changes
+- **Dual Placement Export Controls**:
+  - Direct Action Button: Added dedicated `#exportCsvBtn` styled with blue accent and download icon in the top toolbar adjacent to "Copy All Visible Names".
+  - Batch Menu Integration: Added "Export to Excel / CSV" option inside `#batchMenuDropdown` for convenient workflow access.
+- **Client-Side UTF-8 BOM CSV Engine**:
+  - Dynamically processes `state.filteredRepositories` so it respects active search terms, language filters, and visibility toggles.
+  - Prepends Unicode Byte Order Mark (`\uFEFF`) to enforce UTF-8 parsing in Microsoft Excel across Windows and macOS.
+  - Implements RFC 4180 standard escaping for text containing double quotes, commas, and newlines.
+- **Comprehensive Metadata Coverage**:
+  - Exports 24 distinct data points per repository including effective Live App URLs, Deployed and Active branches, Tech Stack, Database, Auth status, AI Tool, Prompt tool, size, stars, forks, topics, and full timestamps.
 
-### 3. Recent Commit History
-- `f670c54` - docs: add release walkthrough artifact for branch tracking
-- `2f35471` - feat: add deployed branch and latest active branch tracking columns
-- `965ba68` - feat: add global save changes button and full metadata sync
-- `4579c31` - feat: add manual editing and unified persistence for Live App URLs
-- `4f0360c` - fix(metadata): implement hybrid persistence and resolve reset race condition
+### 3. File-by-File Technical Breakdown
+- **[`index.php`](file:///D:/GitHub_Projects/All_Repos/index.php)**:
+  - Added `#exportCsvBtn` with download icon and tooltip in the toolbar.
+  - Integrated "Export to Excel / CSV" button into `#batchMenuDropdown`.
+- **[`assets/js/app.js`](file:///D:/GitHub_Projects/All_Repos/assets/js/app.js)**:
+  - Cached `elements.exportCsvBtn`.
+  - Implemented `escapeCsvValue()` and `exportReposToCsv()`.
+  - Registered click listeners and exposed `window.exportReposToCsv`.
 
-### 4. Code & Syntax Health
-- **`index.php`**: `php -l` verified (0 errors detected)
-- **`api.php`**: `php -l` verified (0 errors detected)
-- **`assets/js/app.js`**: `node -c` verified (0 errors detected)
-- **Zero-Arabic Compliance**: Verified across code, comments, and commit messages (0% Arabic in code).
+### 4. Verification & Testing Evidence
+- **Syntax Validation**: `php -l index.php` and `node -c assets/js/app.js` executed with 0 errors.
+- **RFC 4180 Escaping Test**: Executed automated test suite verifying BOM header, column lengths, and special character sanitization.
+- **Zero-Arabic Policy**: Scanned with Unicode regex `[\u0600-\u06FF]` -> 0% Arabic characters inside code, comments, or commit messages.
+- **Git Remote Synchronization**: Commit `6c8fb6e` pushed directly to `origin/main`.
+
+### 5. Deployment & Export Specification
+| Column Index | Field Name | Source / Logic |
+| :--- | :--- | :--- |
+| 1 - 3 | Repository Name, Description, GitHub URL | Repository core entity |
+| 4 - 6 | Visibility, Is Fork, Primary Language | GitHub core metadata |
+| 7 - 8 | Live App URL, Custom Override Flag | `getRepoEffectiveLiveUrl()` |
+| 9 - 12 | Deployed Branch, Type, Recent Branch, Parity | `getRepoDeployedBranchInfo()` & `getRepoLatestActiveBranch()` |
+| 13 - 17 | Tech Stack, Database, Auth, AI Dev, Prompt | Inspection engine & local/remote metadata store |
+| 18 - 24 | Stars, Forks, Size (KB), Topics, Timestamps | GitHub metrics & chronology |
